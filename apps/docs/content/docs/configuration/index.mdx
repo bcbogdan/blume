@@ -16,6 +16,27 @@ export default defineConfig({
 });
 ```
 
+## Vite plugins
+
+Use `vite.plugins` for additional Vite plugins. Blume loads the plugin objects from your config, retaining functions and nested Vite plugin options, and appends them after its built-ins in your order. Config changes use the same restart bridge as `integrations`; both settings also work after `blume eject`.
+
+```ts blume.config.ts
+import { defineConfig } from "blume";
+
+export default defineConfig({
+  vite: {
+    plugins: [
+      {
+        name: "site-plugin",
+        configResolved(config) {
+          console.log(config.command);
+        },
+      },
+    ],
+  },
+});
+```
+
 ## A complete example
 
 A broader example touching the most common options (see each feature's guide for the rest):

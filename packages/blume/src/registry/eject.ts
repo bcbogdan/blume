@@ -303,7 +303,8 @@ const ejectIntegrationBridge = (
   root: string,
   configFile: string | null
 ): Parameters<typeof astroConfigTemplate>[0]["integrationBridge"] =>
-  config.integrations.length > 0 && configFile
+  (config.integrations.length > 0 || config.vite.plugins.length > 0) &&
+  configFile
     ? { configFile: toPosix(relative(root, configFile)) }
     : undefined;
 

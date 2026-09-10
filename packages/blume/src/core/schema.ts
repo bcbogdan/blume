@@ -1,4 +1,4 @@
-import type { AstroIntegration } from "astro";
+import type { AstroIntegration, AstroUserConfig } from "astro";
 import { z } from "zod";
 
 import type { ComponentMarkdown } from "../ai/component-markdown.ts";
@@ -7,6 +7,7 @@ import { normalizeRoute } from "../openapi/references.ts";
 import { normalizeXHandle } from "../seo/x-handle.ts";
 import { FONT_SLUGS, isFontSlug } from "../theme/fonts.ts";
 import { normalizeBasePath } from "./base-path.ts";
+import type { ViteConfig } from "./config-input.ts";
 import { PUBLIC_HOST_URL } from "./github.ts";
 import { uiLocaleOverridesSchema } from "./i18n-ui.ts";
 import { openInChatProviders } from "./open-in-chat.ts";
@@ -1904,6 +1905,20 @@ const tocConfigSchema = z
       "toc.minHeadingLevel must be less than or equal to toc.maxHeadingLevel.",
   });
 
+// Keep declaration emit anchored to Astro's public config rather than its private Vite installation.
+const viteConfigSchema: z.ZodType<
+  Required<ViteConfig>,
+  ViteConfig
+> = z.strictObject({
+  plugins: z
+    .array(
+      z.custom<
+        NonNullable<NonNullable<AstroUserConfig["vite"]>["plugins"]>[number]
+      >()
+    )
+    .default([]),
+});
+
 export const blumeConfigSchema = z
   .strictObject({
     ai: aiConfigSchema.prefault({}),
@@ -1958,6 +1973,7 @@ export const blumeConfigSchema = z
     title: z.string().default("Documentation"),
     toc: tocConfigSchema,
     versions: versionsConfigSchema.optional(),
+    vite: viteConfigSchema.prefault({}),
   })
   .superRefine((config, ctx) => {
     // A version id that is also a configured locale code would make a leading

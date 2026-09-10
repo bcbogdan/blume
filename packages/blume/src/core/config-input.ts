@@ -1,4 +1,4 @@
-import type { AstroIntegration } from "astro";
+import type { AstroIntegration, AstroUserConfig } from "astro";
 import type { z } from "zod";
 
 import type { AskRetrievalOptions } from "../ai/ask-context.ts";
@@ -1617,12 +1617,19 @@ export type TocConfig =
 // The top-level config
 // ---------------------------------------------------------------------------
 
+/** Additional Vite plugin options, using Astro's public configuration contract. */
+export interface ViteConfig {
+  plugins?: NonNullable<AstroUserConfig["vite"]>["plugins"];
+}
+
 /**
  * A Blume site's configuration — the object passed to {@link defineConfig} in
  * `blume.config.ts`. Every field is optional; an empty config renders the
  * Markdown/MDX under `docs/` with sensible defaults.
  */
 export interface BlumeConfig {
+  /** Additional Vite plugins, appended after Blume's built-ins in user order. */
+  vite?: ViteConfig;
   /** AI-facing features: the Ask AI assistant and an `llms.txt` manifest. */
   ai?: AiConfig;
   /** Analytics providers (PostHog, Vercel, or arbitrary scripts). */

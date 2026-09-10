@@ -795,7 +795,10 @@ const loadIntegrationBridge = async (
   config: ResolvedConfig,
   context: BlumeProject["context"]
 ): Promise<Parameters<typeof astroConfigTemplate>[0]["integrationBridge"]> => {
-  if (config.integrations.length === 0 || !context.configFile) {
+  if (
+    (config.integrations.length === 0 && config.vite.plugins.length === 0) ||
+    !context.configFile
+  ) {
     return;
   }
   return {
