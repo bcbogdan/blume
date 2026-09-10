@@ -293,6 +293,18 @@ fn greet(name: &str) -> String {
 </CodeGroup>
 ````
 
+### Fence option metadata
+
+Use a quoted `option="..."` or `option='...'` attribute after the language to attach an opaque `data-code-option` value to the rendered `<pre>`. It can coexist with a title, line highlights, and `lineNumbers`:
+
+````md
+```ts title="Setup" option="framework=next; ui=custom" lineNumbers
+export const enabled = true;
+```
+````
+
+Blume preserves the value but does not interpret it or hide alternatives. Your application can use it to select code surfaces. Empty, unquoted, malformed, or embedded lookalike attributes are ignored.
+
 ## Frame
 
 Wrap an image or any visual in a centered, bordered frame with an optional `caption` (rendered as Markdown) and `hint`.

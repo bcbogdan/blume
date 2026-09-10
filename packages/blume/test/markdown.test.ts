@@ -224,6 +224,47 @@ describe(toPackageCommands, () => {
 });
 
 describe(codeTitleTransformer, () => {
+  it("preserves opaque quoted options alongside title and line metadata", () => {
+    expect(
+      metaAttrs('file.ts option="framework=next; ui=custom" lineNumbers {1, 3}')
+    ).toEqual({
+      dataCodeOption: "framework=next; ui=custom",
+      dataLineNumbers: true,
+      dataTitle: "file.ts",
+    });
+    expect(metaAttrs(`option='say "hi"'`).dataCodeOption).toBe('say "hi"');
+    expect(metaAttrs(`option="it's opaque"`).dataCodeOption).toBe(
+      "it's opaque"
+    );
+    expect(metaAttrs('option="  spaced  "').dataCodeOption).toBe("  spaced  ");
+  });
+
+  it.each([
+    undefined,
+    'option=""',
+    "option='   '",
+    "option=next",
+    'option = "next"',
+    'option="unterminated',
+    'option="next"suffix',
+    'prefixoption="next"',
+    'data-option="next"',
+    'x=option="next"',
+    `caption='set option="next" here'`,
+    `caption="set option='next' here"`,
+    `caption = 'set option="next" here'`,
+    `caption='unterminated option="next"`,
+  ])("rejects missing, malformed, and embedded options: %s", (raw) => {
+    expect(metaAttrs(raw).dataCodeOption).toBeUndefined();
+  });
+
+  it("finds a real option after an embedded lookalike", () => {
+    expect(
+      metaAttrs(`caption='option="wrong"' option="right"`).dataCodeOption
+    ).toBe("right");
+    expect(metaAttrs('option="" option="right"').dataCodeOption).toBe("right");
+  });
+
   it("promotes the first bare token to a title", () => {
     expect(metaAttrs("blume.config.ts").dataTitle).toBe("blume.config.ts");
   });

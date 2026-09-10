@@ -7,6 +7,8 @@
  *   language label.
  * - the `lineNumbers` keyword (```ts file.ts lineNumbers) becomes
  *   `data-line-numbers`; the theme renders a counter-driven line-number gutter.
+ * - a quoted `option` becomes opaque `data-code-option` for application-owned
+ *   code selection.
  */
 
 import {
@@ -74,6 +76,24 @@ export const parseCodeTitle = (raw: string | undefined): string | undefined => {
 const hasLineNumbers = (raw: string | undefined): boolean =>
   Boolean(raw && LINE_NUMBERS.test(withoutQuotedAttrs(raw)));
 
+// Consume whole attributes (including malformed ones) so an option-looking
+// substring inside another quoted value never becomes a selection attribute.
+const OPTION_TOKEN = /(?:[^\s"']|"[^"]*(?:"|$)|'[^']*(?:'|$))+/gu;
+const OPTION_ATTR = /^option=(?:"(?<dq>[^"]*)"|'(?<sq>[^']*)')$/u;
+
+export const parseCodeOption = (
+  raw: string | undefined
+): string | undefined => {
+  for (const token of raw?.match(OPTION_TOKEN) ?? []) {
+    const match = token.match(OPTION_ATTR);
+    const value = match?.groups?.dq ?? match?.groups?.sq;
+    if (value?.trim()) {
+      return value;
+    }
+  }
+  return undefined;
+};
+
 /** Build the transformer. Runs after Shiki's built-in `data-language` hook. */
 export const codeTitleTransformer = (): CodeTitleTransformer => ({
   name: "blume:code-meta",
@@ -85,6 +105,10 @@ export const codeTitleTransformer = (): CodeTitleTransformer => ({
     }
     if (hasLineNumbers(raw)) {
       node.properties.dataLineNumbers = true;
+    }
+    const option = parseCodeOption(raw);
+    if (option) {
+      node.properties.dataCodeOption = option;
     }
   },
 });
