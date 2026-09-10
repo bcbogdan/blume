@@ -1,7 +1,8 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { dirname, join } from "pathe";
 
 import { buildMcpData } from "../src/ai/mcp/data.ts";
@@ -152,7 +153,8 @@ describe("createMcpFetchHandler transport", () => {
       new Request("https://docs.example.com/mcp", { method: "OPTIONS" })
     );
     expect(response.status).toBe(204);
-    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(response.headers.get("vary")).toBe("Origin");
   });
 
   it("rejects GET (no server-initiated streams)", async () => {
@@ -168,6 +170,207 @@ describe("createMcpFetchHandler transport", () => {
     expect(tools.map((tool) => tool.name).toSorted()).toEqual(
       MCP_TOOLS.map((tool) => tool.name).toSorted()
     );
+  });
+});
+
+describe("MCP request origins", () => {
+  const initialize = JSON.stringify({
+    id: 1,
+    jsonrpc: "2.0",
+    method: "initialize",
+    params: {
+      capabilities: {},
+      clientInfo: { name: "origin-test", version: "1.0.0" },
+      protocolVersion: "2025-03-26",
+    },
+  });
+
+  for (const origin of [null, "https://docs.example.com"]) {
+    for (const [method, status] of [
+      ["OPTIONS", 204],
+      ["GET", 405],
+      ["POST", 200],
+    ] as const) {
+      it(`accepts ${method} with Origin ${origin}`, async () => {
+        const headers = new Headers({
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        });
+        if (origin !== null) {
+          headers.set("Origin", origin);
+        }
+        const response = await handler(
+          new Request("https://docs.example.com/mcp", {
+            body: method === "POST" ? initialize : undefined,
+            headers,
+            method,
+          })
+        );
+        expect(response.status).toBe(status);
+        expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+          origin
+        );
+        expect(response.headers.get("Vary")).toBe("Origin");
+        expect(response.headers.get("Access-Control-Allow-Headers")).toBe(
+          "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version"
+        );
+        expect(response.headers.get("Access-Control-Allow-Methods")).toBe(
+          "GET, POST, OPTIONS"
+        );
+        expect(response.headers.get("Access-Control-Expose-Headers")).toBe(
+          "Mcp-Session-Id"
+        );
+        if (method === "POST") {
+          expect(await response.json()).toMatchObject({
+            id: 1,
+            result: {
+              capabilities: { resources: {}, tools: {} },
+              serverInfo: { name: DATA.name },
+            },
+          });
+        } else if (method === "GET") {
+          expect(response.headers.get("Allow")).toBe("POST, OPTIONS");
+        } else {
+          expect(await response.text()).toBe("");
+        }
+      });
+    }
+  }
+
+  it("rejects every nonmatching present Origin before transport or body processing", async () => {
+    const transport = spyOn(
+      WebStandardStreamableHTTPServerTransport.prototype,
+      "handleRequest"
+    );
+    try {
+      for (const origin of [
+        "https://other.example.com",
+        "http://docs.example.com",
+        "https://docs.example.com:444",
+        "null",
+        "",
+        "not an origin",
+        "https://docs.example.com/",
+        "https://docs.example.com/path",
+        "https://docs.example.com https://other.example.com",
+        "https://docs.example.com.evil.test",
+      ]) {
+        for (const method of ["OPTIONS", "GET", "POST", "DELETE"]) {
+          const request = new Request("https://docs.example.com/mcp", {
+            body: method === "POST" ? "invalid JSON" : undefined,
+            headers: {
+              Origin: origin,
+              "X-Forwarded-Host": "other.example.com",
+              "X-Forwarded-Proto": "https",
+            },
+            method,
+          });
+          // oxlint-disable-next-line no-await-in-loop -- check each rejection before reusing the transport spy
+          const response = await handler(request);
+          expect(response.status).toBe(403);
+          // oxlint-disable-next-line no-await-in-loop -- consume each response alongside its request assertions
+          expect(await response.text()).toBe("Forbidden");
+          expect(response.headers.get("Vary")).toBe("Origin");
+          expect(response.headers.has("Access-Control-Allow-Origin")).toBe(
+            false
+          );
+          expect(request.bodyUsed).toBe(false);
+        }
+      }
+      expect(transport).not.toHaveBeenCalled();
+    } finally {
+      transport.mockRestore();
+    }
+  });
+
+  it("accepts the preview request origin independently of deployment.site and forwarded headers", async () => {
+    const previewHandler = createMcpFetchHandler({
+      ...DATA,
+      instructions: "Be concise.",
+    });
+    const response = await previewHandler(
+      new Request("https://preview-123.vercel.app/docs/mcp", {
+        body: initialize,
+        headers: {
+          Origin: "https://preview-123.vercel.app",
+          "X-Forwarded-Host": "docs.example.com",
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://preview-123.vercel.app"
+    );
+    expect(await response.json()).toMatchObject({
+      result: { instructions: "Be concise." },
+    });
+  });
+
+  it("adds origin variation to transport errors", async () => {
+    const response = await handler(
+      new Request("https://docs.example.com/mcp", {
+        body: "invalid JSON",
+        headers: {
+          Origin: "https://docs.example.com",
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      })
+    );
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Vary")).toBe("Origin");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://docs.example.com"
+    );
+  });
+
+  it("preserves transport headers, Vary tokens, wildcard, status, and body", async () => {
+    for (const [vary, expected] of [
+      ["Accept, Accept-Encoding", "Accept, Accept-Encoding, Origin"],
+      ["Accept, oRiGiN", "Accept, oRiGiN"],
+      ["*", "*"],
+    ] as const) {
+      for (const origin of [null, "https://docs.example.com"]) {
+        const transport = spyOn(
+          WebStandardStreamableHTTPServerTransport.prototype,
+          "handleRequest"
+        ).mockResolvedValue(
+          new Response("transport body", {
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+              "Mcp-Session-Id": "session",
+              Vary: vary,
+            },
+            status: 202,
+            statusText: "Accepted",
+          })
+        );
+        try {
+          // oxlint-disable-next-line no-await-in-loop -- each case temporarily replaces the shared transport method
+          const response = await handler(
+            new Request("https://docs.example.com/mcp", {
+              headers: origin === null ? {} : { Origin: origin },
+              method: "POST",
+            })
+          );
+          expect(response.status).toBe(202);
+          expect(response.statusText).toBe("Accepted");
+          // oxlint-disable-next-line no-await-in-loop -- consume the response before restoring the transport method
+          expect(await response.text()).toBe("transport body");
+          expect(response.headers.get("Vary")).toBe(expected);
+          expect(response.headers.get("Mcp-Session-Id")).toBe("session");
+          expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+            origin
+          );
+        } finally {
+          transport.mockRestore();
+        }
+      }
+    }
   });
 });
 
@@ -414,6 +617,34 @@ describe("MCP content-type filtering", () => {
     const { text } = await callTool("get_navigation");
     const nav: { tabs: { label: string; path: string }[] } = JSON.parse(text);
     expect(nav.tabs.length).toBe(1);
+  });
+
+  it("get_navigation reports an unknown archived version as a tool error", async () => {
+    const versioned = createMcpFetchHandler({
+      ...DATA,
+      archivedVersions: ["v1"],
+    });
+    const response = await versioned(
+      new Request("https://docs.example.com/mcp", {
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: { arguments: { version: "v0" }, name: "get_navigation" },
+        }),
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      })
+    );
+    expect(response.status).toBe(200);
+    const body: RpcBody = await response.json();
+    expect(body.result?.isError).toBe(true);
+    expect(body.result?.content?.[0]?.text).toBe(
+      'Unknown version "v0". Archived versions: v1.'
+    );
   });
 
   it("layers deployment.base into tool URLs (routes are base-less)", async () => {

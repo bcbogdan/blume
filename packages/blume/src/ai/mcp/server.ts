@@ -47,8 +47,32 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers":
     "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Origin": "*",
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
+};
+
+const appendVaryOrigin = (headers: Headers): void => {
+  const vary = headers.get("Vary");
+  if (
+    !vary
+      ?.split(",")
+      .some((value) => ["*", "origin"].includes(value.trim().toLowerCase()))
+  ) {
+    headers.set("Vary", vary ? `${vary}, Origin` : "Origin");
+  }
+};
+
+const corsHeaders = (headers: Headers, origin: string | null): Headers => {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    headers.set(key, value);
+  }
+  if (origin === null) {
+    headers.delete("Access-Control-Allow-Origin");
+  } else {
+    headers.set("Access-Control-Allow-Origin", origin);
+  }
+  // Originless responses must not be reused for a browser's same-origin request.
+  appendVaryOrigin(headers);
+  return headers;
 };
 
 /**
@@ -219,8 +243,8 @@ export const buildServer = (
  * created per request (required by the SDK's stateless mode, which skips session
  * tracking). `enableJsonResponse` makes each call a plain request/response — no
  * SSE — which suits read-only docs tools and runs on any adapter (Node, Vercel,
- * Netlify, Cloudflare). CORS is added so browser-based connectors (e.g.
- * claude.ai) can reach the endpoint.
+ * Netlify, Cloudflare). Browser requests must originate from the endpoint's
+ * own origin; non-browser clients can omit Origin.
  */
 export const createMcpFetchHandler = (
   data: McpData
@@ -228,13 +252,23 @@ export const createMcpFetchHandler = (
   const index = createIndexProvider(data.documents, data.defaultLocale);
 
   return async (request: Request): Promise<Response> => {
+    const origin = request.headers.get("Origin");
+    if (origin !== null && origin !== new URL(request.url).origin) {
+      return new Response("Forbidden", {
+        headers: { Vary: "Origin" },
+        status: 403,
+      });
+    }
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS, status: 204 });
+      return new Response(null, {
+        headers: corsHeaders(new Headers(), origin),
+        status: 204,
+      });
     }
     if (request.method === "GET") {
       // No server-initiated streams are needed for read-only tools.
       return new Response("Method Not Allowed", {
-        headers: { ...CORS_HEADERS, Allow: "POST, OPTIONS" },
+        headers: corsHeaders(new Headers({ Allow: "POST, OPTIONS" }), origin),
         status: 405,
       });
     }
@@ -250,10 +284,7 @@ export const createMcpFetchHandler = (
     await server.connect(transport);
     const response = await transport.handleRequest(request);
 
-    const headers = new Headers(response.headers);
-    for (const [key, value] of Object.entries(CORS_HEADERS)) {
-      headers.set(key, value);
-    }
+    const headers = corsHeaders(new Headers(response.headers), origin);
     return new Response(response.body, {
       headers,
       status: response.status,

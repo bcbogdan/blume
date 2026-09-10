@@ -63,3 +63,9 @@ A static build with `ai.mcp.enabled` fails fast with a message telling you to se
 ```bash
 claude mcp add --transport http my-docs https://docs.example.com/mcp
 ```
+
+## Request origins
+
+Requests without an `Origin` header are accepted. When `Origin` is present, it must exactly match the request URL's origin (scheme, host, and port); other values receive `403 Forbidden` before MCP processing, including on preflight requests. This allows same-origin browser clients and non-browser connectors that omit `Origin`, but rejects direct cross-origin browser requests.
+
+Validation uses the request URL, so same-origin requests on preview deployments work independently of `deployment.site`. Forwarded headers do not override this check. Accepted browser origins are reflected in `Access-Control-Allow-Origin`; originless responses omit that header. Responses vary by `Origin` so caches keep these cases separate, preserving existing `Vary` tokens and `Vary: *`.
