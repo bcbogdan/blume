@@ -68,9 +68,8 @@ export interface AskRetrievalOptions {
 const EXCERPT_LEAD = 160;
 
 /**
- * Common words dropped from the retrieval query before locating the relevant
- * excerpt region, so short filler ("how does…", "what is…") doesn't drag the
- * window toward incidental matches instead of the meaningful terms.
+ * Common conversational words dropped locally for Ask retrieval and excerpt
+ * selection, so filler doesn't outrank the meaningful terms.
  */
 const STOPWORDS = new Set([
   "about",
@@ -87,6 +86,7 @@ const STOPWORDS = new Set([
   "for",
   "from",
   "how",
+  "i",
   "in",
   "into",
   "is",
@@ -119,8 +119,16 @@ const STOPWORDS = new Set([
   "your",
 ]);
 
-/** A run of letters, combining marks and digits inside a word-like segment. */
-const TERM = /[\p{L}\p{M}\p{N}]+/gu;
+/** Keep internal apostrophes so contractions don't contribute isolated suffixes. */
+const TERM = /[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*/gu;
+
+// Orama keeps these connectors within tokens; stripping part of `is_ready` or
+// `on-call` would turn a searchable identifier into a different query.
+const RETRIEVAL_TOKEN = /[\p{L}\p{M}\p{N}_'’-]+/gu;
+
+// Single characters in unspaced scripts must still match within running text.
+const UNSPACED_CHARACTER =
+  /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]$/u;
 
 /**
  * Word-shaped pieces of a query, NFC-normalized and lowercased. Languages
@@ -152,9 +160,23 @@ const segmentQuery = (query: string): string[] => {
 /** Distinct, meaningful lowercase terms from a query (drops stopwords). */
 const queryTerms = (query: string): string[] => {
   const terms = segmentQuery(query).flatMap((piece) => piece.match(TERM) ?? []);
-  return [...new Set(terms)].filter(
-    (term) => term.length >= 2 && !STOPWORDS.has(term)
-  );
+  return [...new Set(terms)].filter((term) => !STOPWORDS.has(term));
+};
+
+const retrievalQuery = (query: string): string => {
+  let meaningful = false;
+  // Replace only noise, preserving punctuation and adjacency: joining segmented
+  // CJK words with spaces would change the shared index's compound bigrams.
+  const normalized = query
+    .normalize("NFC")
+    .replaceAll(RETRIEVAL_TOKEN, (term) => {
+      if (STOPWORDS.has(term.toLowerCase())) {
+        return " ";
+      }
+      meaningful = true;
+      return term;
+    });
+  return meaningful ? normalized.replaceAll(/\s+/gu, " ").trim() : query;
 };
 
 /**
@@ -176,47 +198,29 @@ const lastUserMessage = (messages: AskMessage[]): string => {
   return "";
 };
 
-/**
- * Excerpt the region of `content` most relevant to `query`, not just its head.
- *
- * Pages are indexed whole (one document each), so a naive head slice of a long
- * page returns its intro and misses sections below the fold — the exact failure
- * where "How does Ask AI work?" retrieves the right page but only sees its
- * opening paragraph. This centers the window on the densest cluster of query
- * terms so the injected text is the part that actually answers the question.
- * Exported for testing; {@link createAskContext} is the runtime entry point.
- */
-export const relevantExcerpt = (
-  content: string,
-  query: string,
-  max: number
-): string => {
-  // NFC to match the normalized query terms; positions are computed on (and
-  // sliced from) this same string, so offsets stay aligned.
-  const trimmed = content.normalize("NFC").trim();
-  if (trimmed.length <= max) {
-    return trimmed;
-  }
-  const withEllipsis = (start: number): string => {
-    const slice = trimmed.slice(start, start + max).trim();
-    const prefix = start > 0 ? "…" : "";
-    const suffix = start + max < trimmed.length ? "…" : "";
-    return `${prefix}${slice}${suffix}`;
-  };
-
+/** Locate a relevant window in already normalized content, retaining its offset. */
+const excerptStart = (trimmed: string, query: string, max: number): number => {
   // Case-insensitive matching via regex rather than `indexOf` on a lowercased
   // copy: length-changing case mappings (Turkish İ → "i" + U+0307) would shift
   // every index in the copy, sliding the excerpt window off the match. Terms
-  // come from TERM (letters, marks and digits only), so no regex escaping.
+  // come from TERM (letters, marks, digits and apostrophes), so no regex escaping.
   const positions: number[] = [];
   for (const term of queryTerms(query)) {
-    for (const match of trimmed.matchAll(new RegExp(term, "giu"))) {
+    // A standalone R must not match every r in prose. Unicode boundaries also
+    // cover non-Latin letters and combining marks, unlike ASCII-oriented \b.
+    // Connectors only block a boundary when joined to another word character,
+    // so quoted standalone letters still match.
+    const pattern =
+      [...term].length === 1 && !UNSPACED_CHARACTER.test(term)
+        ? `(?<![\\p{L}\\p{M}\\p{N}_]['’-]?)${term}(?!['’-]?[\\p{L}\\p{M}\\p{N}_])`
+        : term;
+    for (const match of trimmed.matchAll(new RegExp(pattern, "giu"))) {
       positions.push(match.index);
     }
   }
   // No query terms hit this doc — nothing to center on, so keep the head.
   if (positions.length === 0) {
-    return withEllipsis(0);
+    return 0;
   }
 
   // Pick the term hit whose following `max`-char window covers the most hits.
@@ -245,7 +249,50 @@ export const relevantExcerpt = (
   // can be smaller than EXCERPT_LEAD, and an uncapped `best - EXCERPT_LEAD`
   // start would end the slice before the very match it centered on.
   const lead = Math.min(EXCERPT_LEAD, Math.floor(max / 2));
-  return withEllipsis(Math.max(0, best - lead));
+  return Math.max(0, best - lead);
+};
+
+/**
+ * Keep a query-relevant window alongside bounded introductory context. Long
+ * pages often put prerequisites at the top and examples deep below the fold.
+ * The cap includes omission markers and separators, but not the page heading.
+ * Exported for testing; {@link createAskContext} is the runtime entry point.
+ */
+export const relevantExcerpt = (
+  content: string,
+  query: string,
+  max: number
+): string => {
+  if (max <= 0) {
+    return "";
+  }
+  // Match and slice the same NFC string so combining marks cannot shift offsets.
+  const trimmed = content.normalize("NFC").trim();
+  if (trimmed.length <= max) {
+    return trimmed;
+  }
+  const head = (): string => `${trimmed.slice(0, max - 1).trimEnd()}…`;
+  let start = excerptStart(trimmed, query, Math.max(0, max - 2));
+  if (start === 0 || max < 3) {
+    return head();
+  }
+
+  if (max >= MIN_EXCERPT_CHARS) {
+    const introEnd = Math.floor(max / 2);
+    const intro = trimmed.slice(0, introEnd).trimEnd();
+    // Reserve the gap marker and a possible trailing ellipsis before selecting
+    // the smaller relevant window. No prefix marker is needed after the gap.
+    const size = max - intro.length - "\n…\n".length - 1;
+    start = excerptStart(trimmed, query, size);
+    if (start <= introEnd) {
+      return head();
+    }
+    const end = start + size;
+    return `${intro}\n…\n${trimmed.slice(start, end).trim()}${end < trimmed.length ? "…" : ""}`;
+  }
+
+  const end = start + max - 2;
+  return `…${trimmed.slice(start, end).trim()}${end < trimmed.length ? "…" : ""}`;
 };
 
 /**
@@ -298,7 +345,7 @@ export const createAskContext = (
       ? byRoute.get(normalizeRoute(page.path))
       : undefined;
     const db = await index();
-    const hits = await queryOramaIndex(db, query, maxResults, {
+    const hits = await queryOramaIndex(db, retrievalQuery(query), maxResults, {
       locale: current?.locale || undefined,
     });
 
@@ -311,7 +358,10 @@ export const createAskContext = (
       }
       // Skip a page that would be cut to a junk fragment: its excerpt is only
       // useful when it either fits whole or gets at least the minimum window.
-      if (budget < MIN_EXCERPT_CHARS && doc.content.trim().length > budget) {
+      if (
+        budget < MIN_EXCERPT_CHARS &&
+        doc.content.normalize("NFC").trim().length > budget
+      ) {
         return;
       }
       seen.add(doc.route);

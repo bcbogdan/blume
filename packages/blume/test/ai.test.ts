@@ -1147,6 +1147,225 @@ const docsBlock = (system: string | undefined): string => {
 };
 
 describe("createAskContext", () => {
+  it.each([
+    ["is_ready", "en"],
+    ["use-case", "en"],
+    ["on-call", "en"],
+    ["it's", "en"],
+    ["who’s", "ru"],
+  ])(
+    "preserves the whole retrieval token %s (%s) alone and in conversation",
+    async (term, locale) => {
+      const ground = createAskContext(
+        {
+          defaultLocale: locale,
+          documents: [
+            {
+              content: term,
+              description: "",
+              route: "/reference",
+              title: "Reference",
+            },
+            {
+              content: "How do I",
+              description: "How do I",
+              route: "/noise",
+              title: "How do I",
+            },
+          ],
+          site: null,
+        },
+        { retrieval: { maxResults: 1 } }
+      );
+      const contexts = await Promise.all(
+        [term, `how do i use ${term}?`].map((content) =>
+          ground([{ content, role: "user" }])
+        )
+      );
+      for (const context of contexts) {
+        expect(context).toContain("(/reference)");
+        expect(context).not.toContain("(/noise)");
+      }
+    }
+  );
+
+  it("retrieves the same docs for conversational questions and meaningful terms", async () => {
+    const ground = createAskContext(
+      {
+        documents: [
+          {
+            content: "Configure the Passwordless recipe for magic link login.",
+            description: "Configure passwordless authentication.",
+            route: "/passwordless",
+            title: "Magic Link Login Setup",
+          },
+          {
+            content: "How do I change the dashboard theme?",
+            description: "How do I",
+            route: "/unrelated",
+            title: "How do I",
+          },
+        ],
+        site: null,
+      },
+      { retrieval: { maxResults: 1 } }
+    );
+    const conversational = await ground([
+      { content: "how do i setup magic link login?", role: "user" },
+    ]);
+    const keywords = await ground([
+      { content: "setup magic link login", role: "user" },
+    ]);
+    expect(conversational).toContain("(/passwordless)");
+    expect(conversational).not.toContain("(/unrelated)");
+    expect(conversational).toBe(keywords);
+  });
+
+  it.each([
+    ["R", "en"],
+    ["7", "en"],
+    ["法", "ja"],
+    ["й", "ru"],
+    ["เสื้อ", "th"],
+    ["資金決済法", "ja"],
+  ])("preserves meaningful query tokens: %s (%s)", async (term, locale) => {
+    const ground = createAskContext(
+      {
+        defaultLocale: locale,
+        documents: [
+          {
+            content: `Reference for ${term}.`,
+            description: "",
+            locale,
+            route: "/reference",
+            title: term,
+          },
+          {
+            content: "How do I change the dashboard theme?",
+            description: "How do I",
+            locale,
+            route: "/noise",
+            title: "How do I",
+          },
+        ],
+        site: null,
+      },
+      { retrieval: { maxResults: 1 } }
+    );
+    const context = await ground([
+      { content: `how do i ${term}?`, role: "user" },
+    ]);
+    expect(context).toContain("(/reference)");
+    expect(context).not.toContain("(/noise)");
+    expect(context).toBe(await ground([{ content: term, role: "user" }]));
+  });
+
+  it("falls back to the original query when every word is conversational noise", async () => {
+    const ground = createAskContext({
+      documents: [
+        {
+          content: "How do I",
+          description: "",
+          route: "/how",
+          title: "How do I",
+        },
+        {
+          content: "Reference",
+          description: "",
+          route: "/ref",
+          title: "Reference",
+        },
+      ],
+      site: null,
+    });
+    const context = await ground([{ content: "how do i?", role: "user" }]);
+    expect(context).toContain("(/how)");
+    expect(context).not.toContain("(/ref)");
+    expect(await ground([{ content: "?!", role: "user" }])).toBeUndefined();
+  });
+
+  it("preserves CJK compound adjacency instead of retrieving separated fragments", async () => {
+    const ground = createAskContext(
+      {
+        defaultLocale: "ja",
+        documents: [
+          {
+            content: "資金決済法",
+            description: "",
+            route: "/law",
+            title: "Reference",
+          },
+          {
+            content: "資金 決済 法",
+            description: "資金 決済 法",
+            route: "/fragments",
+            title: "資金 決済 法",
+          },
+        ],
+        site: null,
+      },
+      { retrieval: { maxResults: 1 } }
+    );
+    const context = await ground([
+      { content: "how do i use 資金決済法?", role: "user" },
+    ]);
+    expect(context).toContain("(/law)");
+    expect(context).not.toContain("(/fragments)");
+  });
+
+  it("uses the latest nonempty user query and normalizes decomposed retrieval terms", async () => {
+    const ground = createAskContext({
+      defaultLocale: "ru",
+      documents: [
+        {
+          content: "café guide",
+          description: "",
+          route: "/cafe",
+          title: "Café",
+        },
+      ],
+      site: null,
+    });
+    const context = await ground([
+      { content: "unrelated", role: "user" },
+      { content: "how do i cafe\u0301?", role: "user" },
+      { content: "unrelated", role: "assistant" },
+      { content: "  ", role: "user" },
+    ]);
+    expect(context).toContain("(/cafe)");
+    expect(context).toBe(await ground([{ content: "café", role: "user" }]));
+  });
+
+  it("keeps setup prerequisites beside a relevant example deep in a page", async () => {
+    const ground = createAskContext({
+      documents: [
+        {
+          content: [
+            "Initialize Passwordless and Session on both frontend and backend before using the examples.",
+            "General documentation. ".repeat(300),
+            "Magic link login: consume the link after an explicit user interaction. ".repeat(
+              30
+            ),
+          ].join("\n\n"),
+          description: "Configure passwordless authentication.",
+          route: "/passwordless",
+          title: "Passwordless setup",
+        },
+      ],
+      site: null,
+    });
+    const context = await ground([
+      { content: "magic link login", role: "user" },
+    ]);
+    expect(context).toContain(
+      "Initialize Passwordless and Session on both frontend and backend"
+    );
+    expect(context).toContain(
+      "consume the link after an explicit user interaction"
+    );
+    expect(context).not.toContain("General documentation. ".repeat(300));
+  });
+
   it("grounds the prompt in the retrieved page and asks the model to cite", async () => {
     const ground = createAskContext(askData);
     const system = await ground([
@@ -1216,8 +1435,7 @@ describe("createAskContext", () => {
     const injected = docsBlock(
       await ground([{ content: "install guide", role: "user" }])
     );
-    // 300 characters of body, plus the `## Title (/route)` heading and the
-    // ellipses marking the trimmed edges.
+    // The 300-character body cap includes ellipses, but not the page heading.
     expect(injected.length).toBeLessThan(400);
     expect(injected).toContain("install");
   });
@@ -1310,6 +1528,72 @@ describe("createAskContext", () => {
     ).toBeUndefined();
   });
 
+  it.each([199, 200, 201])(
+    "respects the minimum excerpt floor with %i characters remaining",
+    async (remaining) => {
+      const content = `INTRO${".".repeat(1000)}targetword${".".repeat(1000)}`;
+      const ground = createAskContext(
+        {
+          documents: [
+            { content, description: "", route: "/current", title: "Current" },
+            { content, description: "", route: "/hit", title: "Targetword" },
+          ],
+          site: null,
+        },
+        { retrieval: { contextBudget: 400 + remaining, excerptChars: 400 } }
+      );
+      const injected = docsBlock(
+        await ground([{ content: "targetword", role: "user" }], {
+          path: "/current",
+        })
+      );
+      const bodies = injected
+        .trim()
+        .split(/^## .*\n/gmu)
+        .slice(1)
+        .map((body) => body.trim());
+      expect(bodies).toHaveLength(remaining < 200 ? 1 : 2);
+      expect(bodies[0]?.length).toBe(400);
+      expect(bodies.reduce((sum, body) => sum + body.length, 0)).toBe(
+        remaining < 200 ? 400 : 400 + remaining
+      );
+      for (const body of bodies) {
+        expect(body).toContain("INTRO");
+        expect(body).toContain("targetword");
+      }
+    }
+  );
+
+  it("fits a short NFC-normalized page exactly into a subminimum remaining budget", async () => {
+    const ground = createAskContext(
+      {
+        documents: [
+          {
+            content: "x".repeat(1000),
+            description: "",
+            route: "/current",
+            title: "Current",
+          },
+          {
+            content: "e\u0301".repeat(199),
+            description: "",
+            route: "/hit",
+            title: "Targetword",
+          },
+        ],
+        site: null,
+      },
+      { retrieval: { contextBudget: 599, excerptChars: 400 } }
+    );
+    const injected = docsBlock(
+      await ground([{ content: "targetword", role: "user" }], {
+        path: "/current",
+      })
+    );
+    expect(injected).toContain("(/hit)");
+    expect(injected).toContain("é".repeat(199));
+  });
+
   it("injects the current page as priority context", async () => {
     const ground = createAskContext(askData);
     const system = await ground([{ content: "themes", role: "user" }], {
@@ -1339,9 +1623,12 @@ describe("createAskContext", () => {
       ],
       site: null,
     });
-    const system = await ground([{ content: "installation", role: "user" }], {
-      path: "/fr/install",
-    });
+    const system = await ground(
+      [{ content: "how do i use installation?", role: "user" }],
+      {
+        path: "/fr/install",
+      }
+    );
     expect(system).toContain("Install FR");
     expect(system).not.toContain("Install EN");
   });
@@ -1395,7 +1682,7 @@ describe("createAskContext", () => {
     ).toBeUndefined();
   });
 
-  it("centers the excerpt on the query-relevant section of a long page", async () => {
+  it("keeps the intro and query-relevant section of a long page", async () => {
     // A long page whose answer sits well past the excerpt cap: the head is
     // ~3.6k chars, so a naive head slice would never reach `targetword`.
     const head = `STARTMARKER ${"alpha ".repeat(600)}`;
@@ -1417,8 +1704,9 @@ describe("createAskContext", () => {
     ]);
     // The relevant section is injected even though it's below the fold…
     expect(system).toContain("targetword feature");
-    // …and the skipped head (its opening marker) never reaches the prompt.
-    expect(system).not.toContain("STARTMARKER");
+    // …alongside prerequisites from the head, without the whole intervening text.
+    expect(system).toContain("STARTMARKER");
+    expect(system).not.toContain(head);
     expect(system).toContain("…");
   });
 
@@ -1443,6 +1731,143 @@ describe("createAskContext", () => {
 });
 
 describe("relevantExcerpt", () => {
+  it("keeps the R installation passage despite repeated hyphenated identifiers", () => {
+    const passage = 'R installation: install.packages("example")';
+    const content = `${"option-r-value ".repeat(200)}${passage} ${"details ".repeat(100)}`;
+    expect(relevantExcerpt(content, "R installation", 400)).toContain(passage);
+  });
+
+  it("does not split conversational contractions into possessive suffix matches", () => {
+    const passage = 'installation: install.packages("example")';
+    const content = `${"The user's guide explains the server's settings. ".repeat(200)}${passage} ${"details ".repeat(100)}`;
+    expect(relevantExcerpt(content, "what's installation", 400)).toContain(
+      passage
+    );
+    expect(relevantExcerpt(content, "what’s installation", 400)).toContain(
+      passage
+    );
+  });
+
+  it.each(["what's", "what’s"])(
+    "keeps %s as one excerpt term rather than an isolated s",
+    (term) => {
+      const passage = `${term} available here`;
+      const content = `${"s ".repeat(400)}${passage} ${"details ".repeat(100)}`;
+      expect(relevantExcerpt(content, term, 400)).toContain(passage);
+    }
+  );
+
+  it.each([
+    "option-r",
+    "r-value",
+    "option'r",
+    "r'value",
+    "option’r",
+    "r’value",
+  ])(
+    "ignores internal connectors in %s while matching quoted standalone letters",
+    (noise) => {
+      for (const quoted of ["'R'", "‘R’", '"R"']) {
+        const passage = `${quoted}: standalone option`;
+        const content = `${`${noise} `.repeat(200)}${passage} ${"details ".repeat(100)}`;
+        expect(relevantExcerpt(content, quoted, 400)).toContain(passage);
+      }
+    }
+  );
+
+  it("does not let single-letter terms match incidental letters throughout prose", () => {
+    const passage = 'R installation: install.packages("example")';
+    const content = `${"General reference overview. ".repeat(200)}${passage} ${"details ".repeat(100)}`;
+    expect(relevantExcerpt(content, "installation", 400)).toContain(passage);
+    expect(relevantExcerpt(content, "R installation", 400)).toContain(passage);
+  });
+
+  it.each([
+    ["R", "référence"],
+    ["я", "пояснения"],
+    ["π", "περιγραφή"],
+    ["7", "1729"],
+    ["ב", "בית"],
+    ["R", "érø"],
+    ["R", "r\u0301"],
+    ["R", "option_r_value"],
+  ])("matches standalone %s rather than embedded characters", (term, noise) => {
+    const passage = `${term}: standalone option`;
+    const content = `${`${noise} `.repeat(200)}${passage} ${"details ".repeat(100)}`;
+    expect(relevantExcerpt(content, term, 400)).toContain(passage);
+  });
+
+  it("still matches a single Han character inside unspaced text", () => {
+    const content = `${"導入 ".repeat(300)}法律の説明です。${"補足 ".repeat(100)}`;
+    expect(relevantExcerpt(content, "法", 400)).toContain("法律の説明です。");
+  });
+
+  it.each([0, 1, 2, 3, 199, 200, 201, 399, 400, 2000])(
+    "includes markers and separators within a %i-character budget",
+    (max) => {
+      for (const content of [
+        "short page",
+        `targetword ${"padding ".repeat(500)}`,
+        `INTRO ${"padding ".repeat(500)}targetword ${"tail ".repeat(500)}`,
+        `INTRO ${"padding ".repeat(500)}targetword`,
+      ]) {
+        const excerpt = relevantExcerpt(content, "targetword", max);
+        expect(excerpt.length).toBeLessThanOrEqual(max);
+        if (max >= 199 && content.includes("targetword")) {
+          expect(excerpt).toContain("targetword");
+        }
+        if (max >= 200 && content.startsWith("INTRO")) {
+          expect(excerpt).toContain("INTRO");
+          expect(excerpt).toContain("\n…\n");
+        }
+      }
+    }
+  );
+
+  it("keeps short pages and head matches intact even with authored leading ellipses", () => {
+    const short =
+      `…Authored introduction. ${"short content ".repeat(15)}`.trim();
+    expect(relevantExcerpt(short, "content", 400)).toBe(short);
+    const long = `…Authored targetword introduction. ${"padding ".repeat(100)}`;
+    expect(relevantExcerpt(long, "targetword", 400)).toBe(
+      `${long.slice(0, 399).trimEnd()}…`
+    );
+    expect(relevantExcerpt(long, "unmatched", 400)).toBe(
+      `${long.slice(0, 399).trimEnd()}…`
+    );
+  });
+
+  it("merges overlapping or adjacent intro and relevant windows without duplication", () => {
+    for (const position of [250, 298]) {
+      const content = `${"x".repeat(position)}targetword ${"y".repeat(500)}`;
+      const excerpt = relevantExcerpt(content, "targetword", 400);
+      expect(excerpt).toBe(`${content.slice(0, 399)}…`);
+      expect(excerpt.split("targetword")).toHaveLength(2);
+      expect(excerpt).not.toContain("\n…\n");
+    }
+  });
+
+  it("normalizes the intro and deep window before slicing or charging the budget", () => {
+    const content = `cafe\u0301 ${"e\u0301 ".repeat(250)}targetword ${"tail ".repeat(100)}`;
+    const excerpt = relevantExcerpt(content, "targetword", 400);
+    expect(excerpt).toBe(
+      relevantExcerpt(content.normalize("NFC"), "targetword", 400)
+    );
+    expect(excerpt).toStartWith("café");
+    expect(excerpt).toContain("targetword");
+    expect(excerpt.length).toBeLessThanOrEqual(400);
+  });
+
+  it.each(["R", "7", "法", "й", "เสื้อ"])(
+    "locates meaningful short and Unicode excerpt terms: %s",
+    (term) => {
+      const content = `${"x ".repeat(500)}${term} reference ${"z ".repeat(200)}`;
+      expect(relevantExcerpt(content, `how do i ${term}`, 100)).toContain(
+        `${term} reference`
+      );
+    }
+  );
+
   it("keeps the window on the match when case mapping changes lengths", () => {
     // Turkish İ lowercases to two characters ("i" + U+0307). Index math on a
     // lowercased copy of the content would drift past the real position and
@@ -1461,13 +1886,12 @@ describe("relevantExcerpt", () => {
     const content = `${"alpha ".repeat(120)}targetword closes the section. ${"tail ".repeat(60)}`;
     const excerpt = relevantExcerpt(content, "targetword", 100);
     expect(excerpt).toContain("targetword");
-    // At most the window plus the two ellipsis characters.
-    expect(excerpt.length).toBeLessThanOrEqual(102);
+    expect(excerpt.length).toBeLessThanOrEqual(100);
   });
 
   it("keeps the full lead-in when the window affords it", () => {
     const content = `${"alpha ".repeat(120)}targetword closes the section. ${"tail ".repeat(60)}`;
-    const excerpt = relevantExcerpt(content, "targetword", 600);
+    const excerpt = relevantExcerpt(content, "targetword", 800);
     // The 160-char lead-in of heading/sentence context survives intact.
     expect(excerpt).toContain(`${"alpha ".repeat(26)}targetword`);
   });
@@ -1502,6 +1926,10 @@ describe("relevantExcerpt", () => {
       const content = `${"alpha ".repeat(120)}targetword closes the section. ${"tail ".repeat(60)}`;
       const excerpt = relevantExcerpt(content, "targetword", 100);
       expect(excerpt).toContain("targetword");
+      const contraction = `${"s ".repeat(400)}what's available here ${"tail ".repeat(100)}`;
+      expect(relevantExcerpt(contraction, "what's", 100)).toContain(
+        "what's available here"
+      );
     } finally {
       // SAFETY: restoring the readonly global unset above.
       (Intl as { Segmenter: typeof Intl.Segmenter | undefined }).Segmenter =
