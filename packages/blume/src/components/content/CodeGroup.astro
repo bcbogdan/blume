@@ -3,11 +3,13 @@ import Tabs from "./Tabs.astro";
 
 interface Props {
   dropdown?: boolean;
+  /** JSON object mapping fence titles to stable tab values. */
+  tabValues?: string;
 }
 
-const { dropdown = false } = Astro.props;
+const { dropdown = false, tabValues } = Astro.props;
 ---
 
-<Tabs dropdown={dropdown} hash={false}>
+<Tabs dropdown={dropdown} hash={false} tabValues={tabValues}>
   <slot />
 </Tabs>

@@ -26,6 +26,8 @@ interface Props {
    * tab there can't drag along an authored group with a same-titled tab.
    */
   syncKey?: string;
+  /** JSON object mapping direct fence titles to stable tab values. */
+  tabValues?: string;
 }
 
 const {
@@ -37,6 +39,7 @@ const {
   param,
   sync = true,
   syncKey,
+  tabValues,
 } = Astro.props;
 
 // MDX string attributes (`hash="false"` from generated markup) must read as
@@ -61,6 +64,7 @@ const useDropdown = dropdown && !inline;
   data-param={param}
   data-sync={sync ? "true" : "false"}
   data-sync-key={syncKey}
+  data-tab-values={tabValues}
 >
   {/*
     Header row: the scrolling tab strip (or the dropdown) grows, and an
@@ -159,10 +163,58 @@ const useDropdown = dropdown && !inline;
                 child instanceof HTMLElement && child.matches("pre, figure")
             )
           : [];
-        for (const block of blocks) {
-          block.setAttribute("data-blume-tab-panel", "");
+        const rawValues = this.dataset.tabValues;
+        let values: Record<string, string> | undefined;
+        if (rawValues !== undefined) {
+          try {
+            const parsed: unknown = JSON.parse(rawValues);
+            if (
+              !parsed ||
+              typeof parsed !== "object" ||
+              Array.isArray(parsed) ||
+              !Object.entries(parsed).every(
+                ([title, value]) =>
+                  title.trim().length > 0 &&
+                  typeof value === "string" &&
+                  value.trim().length > 0
+              ) ||
+              !blocks.every((block) =>
+                Object.hasOwn(parsed, block.dataset.title ?? "Example")
+              )
+            ) {
+              this.dataset.codeGroupInvalid = "true";
+            } else {
+              values = parsed as Record<string, string>;
+            }
+          } catch {
+            this.dataset.codeGroupInvalid = "true";
+          }
         }
-        panels = blocks;
+        if (values) {
+          const grouped = new Map<string, HTMLElement>();
+          for (const block of blocks) {
+            const title = block.dataset.title ?? "Example";
+            const value = values[title] as string;
+            let panel = grouped.get(value);
+            if (!panel) {
+              panel = document.createElement("div");
+              panel.dataset.blumeTabPanel = "";
+              panel.dataset.title = title;
+              panel.dataset.tabId = value;
+              panel.role = "tabpanel";
+              wrapper?.insertBefore(panel, block);
+              grouped.set(value, panel);
+            }
+            // Keep fences direct: downstream option controllers own selection.
+            panel.appendChild(block);
+          }
+          panels = [...grouped.values()];
+        } else {
+          for (const block of blocks) {
+            block.setAttribute("data-blume-tab-panel", "");
+          }
+          panels = blocks;
+        }
       }
       if (!list || panels.length === 0) {
         return;

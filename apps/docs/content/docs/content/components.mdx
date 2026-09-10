@@ -293,6 +293,48 @@ fn greet(name: &str) -> String {
 </CodeGroup>
 ````
 
+### Stable tab values and multiple fences
+
+Pass `tabValues` as a **JSON string** mapping fence titles to stable values. Fences with the same value become direct children of one panel, in source order. Tabs follow the first occurrence of each value and use that fence's title as their label; the panel exposes the value as `data-tab-id`.
+
+<CodeGroup tabValues='{"Install":"node","Configure":"node","Python":"python"}'>
+
+```sh Install
+npm install example
+```
+
+```js Configure option="runtime=node"
+export const runtime = "node";
+```
+
+```python Python
+print("Hello")
+```
+
+</CodeGroup>
+
+````mdx
+<CodeGroup tabValues='{"Install":"node","Configure":"node","Python":"python"}'>
+
+```sh Install
+npm install example
+```
+
+```js Configure option="runtime=node"
+export const runtime = "node";
+```
+
+```python Python
+print("Hello")
+```
+
+</CodeGroup>
+````
+
+Every fence title must be an own key in the mapping. Keys and values must be nonempty strings (whitespace-only strings are invalid). Invalid JSON, an invalid mapping shape, or a missing title marks the group with `data-code-group-invalid="true"` and falls back to one tab per fence. Explicit `<Tab>` panels ignore the mapping. Without `tabValues`, the existing one-tab-per-fence behavior applies.
+
+Groups containing a multi-fence panel keep a copy button on each block. Single-fence groups use the shared tab-bar button. Copying respects hidden panels and code surfaces.
+
 ### Fence option metadata
 
 Use a quoted `option="..."` or `option='...'` attribute after the language to attach an opaque `data-code-option` value to the rendered `<pre>`. It can coexist with a title, line highlights, and `lineNumbers`:

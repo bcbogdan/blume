@@ -808,15 +808,36 @@ const bannerKey = banner?.dismissible ? banner.key : null;
       const idleClasses = ["hover:bg-muted", "hover:text-foreground"];
 
       // A tab panel that is nothing but code: a CodeGroup/ts2js block (the
-      // pre is the panel) or a <Tab> holding only fences and the icon
-      // template — the same predicate Tab.astro's flush-padding selector uses.
-      const isCodePanel = (panel: Element) =>
-        panel.matches("pre, figure") ||
+      // pre is the panel) or a <Tab> holding one surface and an icon template.
+      // Multi-surface panels need per-block buttons, even if some are hidden.
+      const isCodePanel = (panel: Element): boolean =>
+        panel.matches("pre") ||
+        (panel.matches("figure") &&
+          panel.querySelectorAll(":scope > pre").length === 1) ||
         (panel.matches("[data-blume-tab-panel]") &&
-          panel.querySelector(":scope > pre") !== null &&
+          panel.querySelectorAll(":scope > pre, :scope > figure").length === 1 &&
           Array.from(panel.children).every((child) =>
-            child.matches("pre, template")
+            child.matches("template") ||
+            (child.matches("pre, figure") && isCodePanel(child))
           ));
+
+      const isCopyVisible = (element: Element): boolean => {
+        for (
+          let current: Element | null = element;
+          current;
+          current = current.parentElement
+        ) {
+          const style = getComputedStyle(current);
+          if (
+            current.hasAttribute("hidden") ||
+            style.display === "none" ||
+            style.visibility === "hidden"
+          ) {
+            return false;
+          }
+        }
+        return true;
+      };
 
       // The tab group's actions slot, when the group is a code switcher —
       // every panel a bare block — so one copy button in the strip serves
@@ -835,15 +856,13 @@ const bannerKey = banner?.dismissible ? banner.key : null;
       };
 
       // The block the strip's copy button should read: the visible panel's
-      // pre. Panels toggle a `hidden` class once the tabs element upgrades;
-      // before that only the first is painted, and it is also the first
-      // match here.
+      // pre. Never fall back to a hidden alternative when no panel is visible.
       const activeCodePre = (tabs: Element) => {
         const content = tabs.querySelector(":scope > [data-blume-tab-content]");
         const panel =
           Array.from(content?.children ?? []).find(
-            (child) => !child.classList.contains("hidden")
-          ) ?? content?.firstElementChild;
+            (child) => isCopyVisible(child)
+          );
         if (!panel) {
           return null;
         }
@@ -920,7 +939,11 @@ const bannerKey = banner?.dismissible ? banner.key : null;
           };
           const flash = createCopyFlash(setChecked, copiedLabel);
           button.addEventListener("click", async () => {
-            const code = readPre()?.querySelector("code");
+            const pre = readPre();
+            if (!pre || !isCopyVisible(pre)) {
+              return;
+            }
+            const code = pre.querySelector("code");
             let text = code?.textContent ?? "";
             // Twoslash nests each hover popup's type signature and docs inside
             // the <code>; copying textContent verbatim would interleave them
@@ -941,6 +964,10 @@ const bannerKey = banner?.dismissible ? banner.key : null;
           return button;
         };
 
+        // Grouping must finish before deciding between strip and per-block copy.
+        if (document.querySelector("blume-tabs")) {
+          await customElements.whenDefined("blume-tabs");
+        }
         for (const pre of document.querySelectorAll(".prose pre")) {
           if (pre.querySelector("[data-blume-copy]")) {
             continue;
