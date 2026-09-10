@@ -309,6 +309,30 @@ Blume preserves the value but does not interpret it or hide alternatives. Your a
 
 Wrap an image or any visual in a centered, bordered frame with an optional `caption` (rendered as Markdown) and `hint`.
 
+Set `borderless` (default: `false`) to remove the border, background, padding, and rounding. Media remains centered and responsive; captions, hints, and autoplay video behavior are preserved.
+
+<Frame
+  borderless
+  caption="A **borderless** illustration."
+  hint="No surrounding frame chrome."
+>
+  <svg
+    width="160"
+    height="72"
+    viewBox="0 0 160 72"
+    role="img"
+    aria-label="Borderless sample"
+  >
+    <rect width="160" height="72" fill="#3b82f6" />
+  </svg>
+</Frame>
+
+```astro
+<Frame borderless caption="Product overview">
+  <img src="/screenshot.png" alt="Product screenshot" />
+</Frame>
+```
+
 <Frame
   caption="A **framed** illustration."
   hint="Frames center and caption visuals."

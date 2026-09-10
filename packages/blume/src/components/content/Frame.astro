@@ -4,11 +4,12 @@ import { createSatteriMarkdownProcessor } from "@astrojs/markdown-satteri";
 import { escapeRawHtml, unwrapParagraph } from "./inline-markdown.ts";
 
 interface Props {
+  borderless?: boolean;
   caption?: string;
   hint?: string;
 }
 
-const { caption, hint } = Astro.props;
+const { borderless = false, caption, hint } = Astro.props;
 
 const markdownProcessor = await createSatteriMarkdownProcessor();
 const captionHtml = caption
@@ -26,7 +27,10 @@ const captionHtml = caption
       )
     }
     <div
-      class="flex justify-center overflow-hidden rounded-blume border border-border bg-muted/30 p-6 [&>:first-child]:m-0! [&_img]:h-auto [&_img]:max-w-full [&_video]:h-auto [&_video]:max-w-full"
+      class:list={[
+        "flex justify-center overflow-hidden [&>:first-child]:m-0! [&_img]:h-auto [&_img]:max-w-full [&_video]:h-auto [&_video]:max-w-full",
+        !borderless && "rounded-blume border border-border bg-muted/30 p-6",
+      ]}
     >
       <slot />
     </div>
