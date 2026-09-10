@@ -16,7 +16,9 @@ export default defineConfig({
 });
 ```
 
-## Vite plugins
+## Public assets and Vite plugins
+
+`publicAssetBasePath` selects the directory for conventional icons inside `public` and the output namespace for generated bundles. With `/docs-assets`, put icons in `public/docs-assets` (for example, `icon.svg`, `icon-dark.svg`, and `apple-icon.png`); bundles are emitted under `docs-assets/_astro`. The default empty prefix keeps icons in `public` and bundles in `_astro`. `deployment.base` still applies to their public URLs. Authored image and asset URLs are unchanged.
 
 Use `vite.plugins` for additional Vite plugins. Blume loads the plugin objects from your config, retaining functions and nested Vite plugin options, and appends them after its built-ins in your order. Config changes use the same restart bridge as `integrations`; both settings also work after `blume eject`.
 
@@ -24,6 +26,7 @@ Use `vite.plugins` for additional Vite plugins. Blume loads the plugin objects f
 import { defineConfig } from "blume";
 
 export default defineConfig({
+  publicAssetBasePath: "/docs-assets",
   vite: {
     plugins: [
       {

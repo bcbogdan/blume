@@ -380,6 +380,11 @@ const renderImageOption = (config: ResolvedConfig): string =>
     ? `\n  image: ${JSON.stringify(config.image)},`
     : "";
 
+const renderAssetsOption = (config: ResolvedConfig): string =>
+  config.publicAssetBasePath
+    ? `\n  build: { assets: ${JSON.stringify(`${config.publicAssetBasePath.slice(1)}/_astro`)} },`
+    : "";
+
 /** What `resolveOptimizeDeps` feeds the generated `optimizeDeps` block. */
 interface OptimizeDepsConfig {
   optimizeDepsEntries: string[];
@@ -568,6 +573,7 @@ export const astroConfigTemplate = (options: {
     ? `\n  base: ${JSON.stringify(deployment.base)},`
     : "";
   const imageOption = renderImageOption(config);
+  const assetsOption = renderAssetsOption(config);
 
   // Astro's native i18n gives locale-aware helpers + `<html lang>` correctness.
   // Blume owns getStaticPaths and materializes fallback routes in the manifest,
@@ -739,7 +745,7 @@ ${userConfigSetup}export default defineConfig({
   srcDir: ${JSON.stringify(`${context.outDir}/src`)},
   outDir: ${JSON.stringify(astroOutDir(context))},
   publicDir: ${JSON.stringify(`${context.root}/public`)},${cacheOptions}
-  output: ${JSON.stringify(deployment.output)},${adapterOption}${sessionOption}${siteOption}${baseOption}${imageOption}${redirectsOption}${i18nOption}${fontsOption}
+  output: ${JSON.stringify(deployment.output)},${adapterOption}${sessionOption}${siteOption}${baseOption}${assetsOption}${imageOption}${redirectsOption}${i18nOption}${fontsOption}
   integrations: [${integrations.join(", ")}${userIntegrationSpread}],
   markdown: {
     processor: blumeMarkdownProcessor(${JSON.stringify({

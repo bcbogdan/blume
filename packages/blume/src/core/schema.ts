@@ -1965,6 +1965,7 @@ export const blumeConfigSchema = z
     markdown: markdownConfigSchema.prefault({}),
     navigation: navigationConfigSchema.prefault({}),
     openapi: openapiConfigSchema.prefault({}),
+    publicAssetBasePath: z.string().optional().transform(normalizeBasePath),
     react: reactConfigSchema.prefault({}),
     redirects: z.array(redirectSchema).default([]),
     search: searchConfigSchema.prefault({}),

@@ -1082,8 +1082,13 @@ const resolveIconFile = (
 ): BlumeFavicon | null => {
   const { root } = project.context;
   for (const name of candidates) {
-    if (existsSync(join(root, "public", name))) {
-      return { href: `/${name}`, type: faviconType(name) };
+    if (
+      existsSync(join(root, "public", project.config.publicAssetBasePath, name))
+    ) {
+      return {
+        href: `${project.config.publicAssetBasePath}/${name}`,
+        type: faviconType(name),
+      };
     }
   }
   for (const name of candidates) {
@@ -1108,12 +1113,23 @@ const resolveIconFile = (
 const resolveFavicon = (project: BlumeProject): BlumeFavicon => {
   const { root } = project.context;
   for (const name of FAVICON_CANDIDATES) {
-    if (existsSync(join(root, "public", name))) {
+    if (
+      existsSync(join(root, "public", project.config.publicAssetBasePath, name))
+    ) {
       const type = faviconType(name);
       const sibling = darkSibling(name);
-      return existsSync(join(root, "public", sibling))
-        ? { dark: { href: `/${sibling}`, type }, href: `/${name}`, type }
-        : { href: `/${name}`, type };
+      return existsSync(
+        join(root, "public", project.config.publicAssetBasePath, sibling)
+      )
+        ? {
+            dark: {
+              href: `${project.config.publicAssetBasePath}/${sibling}`,
+              type,
+            },
+            href: `${project.config.publicAssetBasePath}/${name}`,
+            type,
+          }
+        : { href: `${project.config.publicAssetBasePath}/${name}`, type };
     }
   }
   for (const name of FAVICON_CANDIDATES) {

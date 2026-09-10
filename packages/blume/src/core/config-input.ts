@@ -1628,6 +1628,8 @@ export interface ViteConfig {
  * Markdown/MDX under `docs/` with sensible defaults.
  */
 export interface BlumeConfig {
+  /** Conventional public icon directory and bundle namespace, e.g. `/docs-assets`. */
+  publicAssetBasePath?: string;
   /** Additional Vite plugins, appended after Blume's built-ins in user order. */
   vite?: ViteConfig;
   /** AI-facing features: the Ask AI assistant and an `llms.txt` manifest. */
