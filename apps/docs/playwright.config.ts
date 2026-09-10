@@ -26,9 +26,11 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: "bun run build && bun run preview",
+    // Vercel output cannot be previewed locally; exercise the production build
+    // through Astro's supported Node adapter instead.
+    command: "bun run build --adapter node && bun run preview",
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    timeout: 600_000,
     url: `http://localhost:${PORT}`,
   },
 });

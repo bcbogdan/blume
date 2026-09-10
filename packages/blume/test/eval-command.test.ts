@@ -207,6 +207,7 @@ describe("blume eval", () => {
     expect(stderr).toContain("blume eval init");
   });
 
+  // Four sequential CLI startups share this budget; allow 5s per invocation.
   it("rejects bad flags", async () => {
     const root = await fixture();
     const bin = await fakeClaude(root);
@@ -226,7 +227,7 @@ describe("blume eval", () => {
     const timeout = await run(root, bin, {}, "--timeout", "0");
     expect(timeout.exitCode).toBe(1);
     expect(timeout.stderr).toContain("Invalid --timeout");
-  });
+  }, 20_000);
 
   it("suggests the install command when the agent CLI is missing", async () => {
     const root = await fixture();
