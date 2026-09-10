@@ -1,6 +1,7 @@
-import { withBasePath } from "../../core/base-path.ts";
+import { prependRouteBase } from "../../core/base-path.ts";
 import { absoluteUrl } from "../../core/site-url.ts";
 import type { Navigation } from "../../core/types.ts";
+import { artifactRoute } from "../artifact-routes.ts";
 import type { McpData, McpRoute } from "../mcp/data.ts";
 import {
   createIndexProvider,
@@ -68,6 +69,7 @@ export interface ApiSearchResponse {
 /** The site + base an endpoint needs to build absolute URLs. */
 export interface ApiSiteContext {
   base: string;
+  contentBase?: string;
   site: string | null;
 }
 
@@ -91,14 +93,17 @@ export const pageParam = (route: string): string =>
 
 /** The absolute (or root-relative) URL for a base-less path. */
 const siteUrl = (path: string, context: ApiSiteContext): string => {
-  const based = withBasePath(context.base, path);
+  const based = prependRouteBase(context.base, path);
   return context.site ? absoluteUrl(context.site, based) : based;
 };
+
+const apiUrl = (path: string, context: ApiSiteContext): string =>
+  siteUrl(artifactRoute(context.contentBase ?? "", path), context);
 
 const summarize = (route: McpRoute, data: McpData): ApiPageSummary => {
   const summary: ApiPageSummary = {
     contentType: route.contentType,
-    json: siteUrl(`${API_BASE}/pages/${pageParam(route.route)}.json`, data),
+    json: apiUrl(`${API_BASE}/pages/${pageParam(route.route)}.json`, data),
     lastModified: route.lastModified,
     locale: route.locale,
     markdownUrl: siteUrl(`/${pageParam(route.route)}.md`, data),
@@ -163,8 +168,8 @@ export const pageResponse = (data: McpData, route: string): Response => {
     return problemResponse({
       code: "PAGE_NOT_FOUND",
       detail: `No documentation page has the route "${route}".`,
-      instance: siteUrl(`${API_BASE}/pages/${pageParam(route)}.json`, data),
-      resolution: `List every page at ${siteUrl(API_PAGES_PATH, data)}, or discover the API through ${siteUrl(OPENAPI_PATH, data)}.`,
+      instance: apiUrl(`${API_BASE}/pages/${pageParam(route)}.json`, data),
+      resolution: `List every page at ${apiUrl(API_PAGES_PATH, data)}, or discover the API through ${apiUrl(OPENAPI_PATH, data)}.`,
       status: 404,
       title: "Page not found",
     });
@@ -225,7 +230,7 @@ export const createSearchHandler = (
         code: "MISSING_QUERY",
         detail: 'The "q" query parameter is required and must not be blank.',
         instance: url.pathname,
-        resolution: `Repeat the request with ?q=<search terms>, e.g. ${siteUrl(API_SEARCH_PATH, data)}?q=install.`,
+        resolution: `Repeat the request with ?q=<search terms>, e.g. ${apiUrl(API_SEARCH_PATH, data)}?q=install.`,
         status: 400,
         title: "Missing search query",
       });
@@ -263,10 +268,10 @@ export const apiNotFoundResponse = (
     detail: `No API route exists at ${pathname}.`,
     instance: pathname,
     links: [
-      { href: siteUrl(OPENAPI_PATH, context), label: "OpenAPI description" },
-      { href: siteUrl(API_PAGES_PATH, context), label: "Page index" },
+      { href: apiUrl(OPENAPI_PATH, context), label: "OpenAPI description" },
+      { href: apiUrl(API_PAGES_PATH, context), label: "Page index" },
     ],
-    resolution: `Discover the available operations through the OpenAPI description at ${siteUrl(OPENAPI_PATH, context)}, or list every page at ${siteUrl(API_PAGES_PATH, context)}.`,
+    resolution: `Discover the available operations through the OpenAPI description at ${apiUrl(OPENAPI_PATH, context)}, or list every page at ${apiUrl(API_PAGES_PATH, context)}.`,
     status: 404,
     title: "API route not found",
   });

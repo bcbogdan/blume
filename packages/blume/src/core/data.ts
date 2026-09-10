@@ -165,7 +165,7 @@ export interface BlumeDataConfig {
   imageZoom: boolean;
   logo: BlumeLogo | null;
   /** Hosted MCP server, or `null` when MCP is off. */
-  mcp: { name: string; route: string } | null;
+  mcp: { discovery: boolean; name: string; route: string } | null;
   /**
    * Open Graph image generation. Card fonts are baked into the generated OG
    * endpoint (they can carry absolute build-machine paths) and deliberately

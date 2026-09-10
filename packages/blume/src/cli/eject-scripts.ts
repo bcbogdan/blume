@@ -40,9 +40,6 @@ export const droppedArtifactNotices = (config: ResolvedConfig): string[] => {
       `the hosted ${config.search.provider} index sync — new and updated pages stop being pushed; re-upload your search records after each build with the provider's API or CLI.`
     );
   }
-  if (config.ai.llmsTxt.enabled) {
-    notices.push("llms.txt and llms-full.txt");
-  }
   if (config.deployment.site && config.seo.sitemap) {
     notices.push(
       "sitemap.xml — recreate it with the @astrojs/sitemap integration."
@@ -50,9 +47,6 @@ export const droppedArtifactNotices = (config: ResolvedConfig): string[] => {
   }
   if (config.seo.robots) {
     notices.push("robots.txt — recreate it as a public/robots.txt file.");
-  }
-  if (config.seo.agentReadability) {
-    notices.push("agent-readability.json");
   }
   if (config.redirects.length > 0 && config.deployment.output === "static") {
     notices.push(

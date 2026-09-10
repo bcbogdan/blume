@@ -31,10 +31,12 @@ export interface McpRoute {
 export interface McpData {
   /**
    * Normalized `deployment.base` (`""` or `/seg`), layered onto routes when
-   * emitting URLs — the site is base-less and routes are base-less manifest
-   * paths, matching the sitemap/llms.txt convention.
+   * emitting URLs — the site is base-less and manifest routes already carry
+   * the content mount. Framework API paths apply contentBase separately.
    */
   base: string;
+  /** Content mount, already present in content routes but not in framework API paths. */
+  contentBase?: string;
   /**
    * The site's `i18n.defaultLocale`, when i18n is configured. Selects a
    * word-segmenting Orama tokenizer for every non-Latin script, so
@@ -112,6 +114,7 @@ export const buildMcpData = async (project: BlumeProject): Promise<McpData> => {
 
   const data: McpData = {
     base: normalizeBasePath(config.deployment.base),
+    contentBase: config.basePath,
     defaultLocale: config.i18n?.defaultLocale,
     documents: documents.map((doc) => {
       const document: OramaDoc = {

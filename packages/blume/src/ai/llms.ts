@@ -1,4 +1,4 @@
-import { normalizeBasePath, withBasePath } from "../core/base-path.ts";
+import { normalizeBasePath, prependRouteBase } from "../core/base-path.ts";
 import { rewriteRelativeImages } from "../core/content-assets.ts";
 import matter from "../core/frontmatter.ts";
 import type { BlumeProject } from "../core/project-graph.ts";
@@ -8,6 +8,7 @@ import type { NavNode, Navigation, PageRecord } from "../core/types.ts";
 import { buildRssFeeds } from "../deploy/rss.ts";
 import { API_CATALOG_PATH, hasApiCatalog } from "./api-catalog.ts";
 import { API_PAGES_PATH, OPENAPI_PATH } from "./api/paths.ts";
+import { artifactRoute } from "./artifact-routes.ts";
 import { downlevelComponents } from "./component-markdown.ts";
 import { projectComponentSerializers } from "./serializers.ts";
 import { AGENT_SKILLS_DIR, AGENT_SKILLS_INDEX_PATH } from "./skills.ts";
@@ -19,7 +20,7 @@ import { applyAgentVisibility } from "./visibility.ts";
 // matches where the page is served. Encoded like the sitemap: a route with
 // spaces or non-ASCII must still yield a valid Markdown link.
 const pageUrl = (route: string, site?: string, base = ""): string => {
-  const path = withBasePath(base, route);
+  const path = prependRouteBase(base, route);
   return encodeURI(site ? absoluteUrl(site, path) : path);
 };
 
@@ -49,8 +50,17 @@ const oneLine = (text: string): string => text.replaceAll(/\s+/gu, " ").trim();
 const agentResourceLines = (project: BlumeProject): string[] => {
   const { config } = project;
   const { site } = config.deployment;
+  const mcpUrl = pageUrl(
+    config.ai.mcp.route,
+    site,
+    normalizeBasePath(config.deployment.base)
+  );
   const url = (path: string): string =>
-    pageUrl(path, site, normalizeBasePath(config.deployment.base));
+    pageUrl(
+      artifactRoute(config.basePath, path),
+      site,
+      normalizeBasePath(config.deployment.base)
+    );
   const lines = [
     `- [llms-full.txt](${url("/llms-full.txt")}): The full Markdown of every page in one file.`,
     `- [Page Markdown](${url("/index.md")}): Append \`.md\` to any page URL to fetch that page as raw Markdown.`,
@@ -62,7 +72,7 @@ const agentResourceLines = (project: BlumeProject): string[] => {
   }
   if (config.ai.mcp.enabled) {
     lines.push(
-      `- [MCP server](${url(config.ai.mcp.route)}): Streamable HTTP Model Context Protocol server with search_docs, get_page, list_pages, and get_navigation tools, plus every page as a resource. Discovery document: ${url("/.well-known/mcp.json")}`
+      `- [MCP server](${mcpUrl}): Streamable HTTP Model Context Protocol server with search_docs, get_page, list_pages, and get_navigation tools, plus every page as a resource.${config.ai.mcp.discovery ? ` Discovery document: ${url("/.well-known/mcp.json")}` : ""}`
     );
   }
   if (config.ai.skills) {

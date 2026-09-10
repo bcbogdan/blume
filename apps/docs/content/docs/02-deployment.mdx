@@ -6,6 +6,16 @@ sidebar:
   order: 2
 ---
 
+## Content mounts and machine-readable routes
+
+The API catalog points to `/api/docs/pages.json` beneath the content mount. This JSON file is the API entry point; `/api/docs` is a directory, not an extensionless JSON artifact.
+
+Deployment and content mounts are independent, even when their segments overlap. Setting both `deployment.base` and `basePath` to `/docs` serves Ask at `/docs/docs/api/ask` and the JSON page index at `/docs/docs/api/docs/pages.json`. API self-links use that mounted namespace; page URLs retain just one content mount beneath the deployment prefix.
+
+`basePath: "/docs"` mounts content and the built-in Ask endpoint below `/docs`. Ordinary framework artifacts (`llms.txt`, `llms-full.txt`, `agent-readability.json`, `openapi.json`, and `/api/docs/*`) also have mounted routes, with their root routes retained for compatibility. Blume advertises the mounted URLs and serves the mounted artifacts in development, builds, and eject. `deployment.base` adds Astro's deployment prefix to these URLs. Ejected artifacts and the JSON API use the generated snapshots, which the standalone app owns and must regenerate when content changes.
+
+MCP uses its explicit `ai.mcp.route`; set `/docs/mcp` to mount it there. Protocol well-known resources remain at their deployment-root paths. When the parent app owns MCP discovery, use `ai.mcp.discovery: false`: this suppresses generated discovery documents and their advertisements while keeping the MCP endpoint and tools enabled. User-owned files in `public/.well-known` are preserved.
+
 ## Deploy anywhere (static)
 
 `blume build` compiles your docs to plain HTML, CSS, and a local search index in `dist/`. There's no server to run — point any static host at the folder.

@@ -15,6 +15,10 @@ ai: {
 }
 ```
 
+## Endpoint routing
+
+The built-in endpoint follows `basePath`: `/docs` generates `/docs/api/ask`. With `deployment.base: "/host"`, the UI and manifest use `/host/docs/api/ask`. This also applies after eject. An explicit `ai.ask.endpoint` is used as supplied and does not generate a local endpoint.
+
 ## Suggested questions
 
 Seed the empty state with a few starter prompts. Each renders as a clickable suggestion — click one to send it — with an optional [Lucide icon](/docs/content/components#icon) beside the label:

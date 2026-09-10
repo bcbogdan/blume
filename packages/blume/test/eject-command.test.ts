@@ -123,7 +123,7 @@ describe("blume eject", () => {
     const { exitCode, output } = await runEject(root);
     expect(exitCode).toBe(0);
     expect(output).toContain("astro build && pagefind --site dist");
-    expect(output).toContain("llms.txt");
+    expect(output).not.toContain("llms.txt");
     expect(output).toContain("robots.txt");
     // No deployment.site, so no sitemap was being produced — an inactive
     // artifact must not be listed.

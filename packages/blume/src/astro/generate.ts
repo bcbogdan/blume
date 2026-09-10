@@ -33,7 +33,12 @@ import { buildRawMarkdown, markdownRoutePaths } from "../ai/markdown.ts";
 import { buildMcpData } from "../ai/mcp/data.ts";
 import type { McpData } from "../ai/mcp/data.ts";
 import { buildMcpDiscovery, buildMcpServerCard } from "../ai/mcp/discovery.ts";
-import { normalizeBasePath } from "../core/base-path.ts";
+import { askEndpoint } from "../core/ask-route.ts";
+import {
+  normalizeBasePath,
+  prependRouteBase,
+  stripBasePath,
+} from "../core/base-path.ts";
 import { validateUsedComponents } from "../core/component-diagnostics.ts";
 import { analyzeComponentOverrides } from "../core/component-overrides.ts";
 import {
@@ -96,6 +101,7 @@ import {
 import { buildThemeCss } from "../theme/palette.ts";
 import { rebaseSourceDirectives } from "../theme/sources.ts";
 import { twoslashCss } from "../theme/twoslash.ts";
+import { agentArtifactFiles } from "./agent-artifacts.ts";
 import { planComponentSlots } from "./component-slots.ts";
 import type { ComponentSlotPlan } from "./component-slots.ts";
 import {
@@ -1335,7 +1341,7 @@ export const buildRuntimeData = (project: BlumeProject): string => {
       appleIcon: resolveAppleIcon(project),
       ask: config.ai.ask?.enabled
         ? {
-            endpoint: config.ai.ask.endpoint ?? null,
+            endpoint: askEndpoint(config),
             suggestions: config.ai.ask.suggestions,
           }
         : null,
@@ -1382,6 +1388,7 @@ export const buildRuntimeData = (project: BlumeProject): string => {
       logo,
       mcp: config.ai.mcp.enabled
         ? {
+            discovery: config.ai.mcp.discovery,
             name: config.ai.mcp.name ?? config.title,
             route: config.ai.mcp.route,
           }
@@ -1516,16 +1523,22 @@ const planMcp = (
   }
   return {
     ...base,
-    discoveryPages: [
-      {
-        entrypoint: join(dir, "discovery.ts"),
-        pattern: "/.well-known/mcp.json",
-      },
-      {
-        entrypoint: join(dir, "server-card.ts"),
-        pattern: "/.well-known/mcp/server-card.json",
-      },
-    ],
+    discoveryPages: config.ai.mcp.discovery
+      ? [
+          {
+            entrypoint: join(dir, "discovery.ts"),
+            pattern: "/.well-known/mcp.json",
+          },
+          {
+            entrypoint: join(dir, "server-card.ts"),
+            pattern: "/.well-known/mcp/server-card.json",
+          },
+        ].filter(
+          (page) =>
+            !routeIsTaken(userPages, project.graph.pages, page.pattern) &&
+            !existsSync(join(project.context.root, "public", page.pattern))
+        )
+      : [],
     enabled: true,
   };
 };
@@ -1572,19 +1585,32 @@ const writeMcpFiles = async (
       join(plan.srcDir, "pages", mcpPageFile(plan.route)),
       mcpEndpointTemplate()
     ),
-    write(
-      join(plan.dir, "discovery.ts"),
-      staticJsonEndpointTemplate(buildMcpDiscovery(discoveryInput))
-    ),
-    write(
-      join(plan.dir, "server-card.ts"),
-      staticJsonEndpointTemplate(buildMcpServerCard(discoveryInput))
-    ),
+    ...(plan.discoveryPages.some((page) =>
+      page.entrypoint.endsWith("/discovery.ts")
+    )
+      ? [
+          write(
+            join(plan.dir, "discovery.ts"),
+            staticJsonEndpointTemplate(buildMcpDiscovery(discoveryInput))
+          ),
+        ]
+      : []),
+    ...(plan.discoveryPages.some((page) =>
+      page.entrypoint.endsWith("/server-card.ts")
+    )
+      ? [
+          write(
+            join(plan.dir, "server-card.ts"),
+            staticJsonEndpointTemplate(buildMcpServerCard(discoveryInput))
+          ),
+        ]
+      : []),
   ]);
 };
 
 /** The resolved plan for the JSON docs API within a single generate pass. */
 interface ApiPlan {
+  userPages: { pattern: string }[];
   /**
    * Whether the `/api/` catch-all (JSON 404s) is written: server output, no
    * user page owning a rest route under `/api/`, and no content page served
@@ -1622,7 +1648,7 @@ const contentUnderApi = (page: { route: string }): boolean =>
  * namespace); the live ones need server output; the OpenAPI description yields
  * to one the project ships itself.
  */
-const planApi = (
+export const planApi = (
   project: BlumeProject,
   srcDir: string,
   userPages: { pattern: string }[]
@@ -1637,9 +1663,11 @@ const planApi = (
     enabled: config.ai.api,
     server,
     spec:
-      !routeIsTaken(userPages, project.graph.pages, OPENAPI_PATH) &&
+      (Boolean(config.basePath) ||
+        !routeIsTaken(userPages, project.graph.pages, OPENAPI_PATH)) &&
       !existsSync(join(context.root, "public", "openapi.json")),
     srcDir,
+    userPages,
   };
 };
 
@@ -1651,18 +1679,50 @@ const planApi = (
  * collision can disable it), so it never advertises an endpoint that isn't
  * there.
  */
-const writeApiFiles = async (
+export const writeApiFiles = async (
   project: BlumeProject,
   plan: ApiPlan,
-  write: (path: string, content: string) => Promise<boolean>,
+  writeRoot: (path: string, content: string) => Promise<boolean>,
   data: McpData | null,
-  mcp: McpPlan
+  mcp: Pick<McpPlan, "enabled" | "route">
 ): Promise<void> => {
   if (!(plan.enabled && data)) {
     return;
   }
   const { config } = project;
   const mcpRoute = mcp.enabled ? mcp.route : null;
+  const write = async (path: string, content: string): Promise<boolean> => {
+    const route = `/${relative(join(plan.srcDir, "pages"), path)}`;
+    const pattern = route.slice(0, -3);
+    const rootTaken =
+      routeIsTaken(plan.userPages, project.graph.pages, pattern) ||
+      existsSync(join(project.context.root, "public", pattern));
+    const changed = rootTaken ? false : await writeRoot(path, content);
+    if (config.basePath) {
+      const mounted = prependRouteBase(config.basePath, pattern);
+      const catchAllCollision =
+        route === "/api/[...path].ts" &&
+        (plan.userPages.some((page) =>
+          ownsApiRest({ pattern: stripBasePath(config.basePath, page.pattern) })
+        ) ||
+          project.graph.pages.some((page) =>
+            contentUnderApi({
+              route: stripBasePath(config.basePath, page.route),
+            })
+          ));
+      if (
+        !catchAllCollision &&
+        !routeIsTaken(plan.userPages, project.graph.pages, mounted) &&
+        !existsSync(join(project.context.root, "public", mounted))
+      ) {
+        await writeRoot(
+          join(plan.srcDir, "pages", config.basePath, route),
+          content
+        );
+      }
+    }
+    return changed;
+  };
   const apiDir = join(plan.srcDir, "pages", "api");
   const writes = [
     write(join(apiDir, "docs", "pages.json.ts"), apiPagesIndexTemplate()),
@@ -1679,7 +1739,11 @@ const writeApiFiles = async (
     writes.push(
       write(
         join(apiDir, "[...path].ts"),
-        apiNotFoundTemplate({ base: data.base, site: data.site })
+        apiNotFoundTemplate({
+          base: data.base,
+          contentBase: data.contentBase,
+          site: data.site,
+        })
       )
     );
   }
@@ -1691,8 +1755,10 @@ const writeApiFiles = async (
           buildApiSpec({
             agentReadability: config.seo.agentReadability,
             base: data.base,
+            contentBase: config.basePath,
             description: config.description,
             llmsTxt: config.ai.llmsTxt.enabled,
+            mcpDiscovery: config.ai.mcp.discovery,
             mcpRoute,
             name: config.title,
             search: plan.server,
@@ -1814,7 +1880,7 @@ const writeAskFiles = async (
     modules.set("blume:ask-data", JSON.stringify(await buildAskData(project)));
   }
   await write(
-    join(srcDir, "pages", "api", "ask.ts"),
+    join(srcDir, "pages", project.config.basePath, "api", "ask.ts"),
     askEndpointTemplate(resolveAskBackend(ask), grounded, {
       instructions: ask.instructions,
       retrieval: ask.retrieval,
@@ -2031,7 +2097,13 @@ export const generateRuntime = async (
   // prerendered routes alongside user pages; the server endpoint itself is a
   // normal (server-rendered) page written by `writeMcpFiles`.
   const mcp = planMcp(project, srcDir, pages);
-  pages.push(...mcp.discoveryPages);
+  const artifactFiles = await agentArtifactFiles(project, srcDir, pages);
+  pages.push(
+    ...artifactFiles.flatMap((file) =>
+      file.pattern ? [{ entrypoint: file.path, pattern: file.pattern }] : []
+    ),
+    ...mcp.discoveryPages
+  );
 
   // The JSON docs API shares the MCP server's snapshot; build it once when
   // either is on.
@@ -2199,6 +2271,7 @@ export const generateRuntime = async (
       )
     ),
     writeAskFiles(project, srcDir, write, modules),
+    Promise.all(artifactFiles.map((file) => write(file.path, file.content))),
     writeMcpFiles(mcp, write, agentData),
     writeApiFiles(project, api, write, agentData, mcp),
     playgroundProxy.enabled

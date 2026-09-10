@@ -110,12 +110,21 @@ describe("eject", () => {
     // in memory), aliased from the ejected config to the snapshots it writes.
     const ejectedConfig = readFileSync(join(root, "astro.config.mjs"), "utf-8");
     expect(ejectedConfig).toContain(
-      '"blume:data": "./src/generated/data.json"'
+      'import { fileURLToPath as blumeFileURLToPath } from "node:url";'
     );
     expect(ejectedConfig).toContain(
-      '"blume:mcp-data": "./src/generated/mcp-data.json"'
+      '"blume:data": blumeFileURLToPath(new URL("./src/generated/data.json", import.meta.url))'
+    );
+    expect(ejectedConfig).toContain(
+      '"blume:mcp-data": blumeFileURLToPath(new URL("./src/generated/mcp-data.json", import.meta.url))'
     );
     expect(ejectedConfig).not.toContain("runtimeModulesPlugin");
+    expect(ejectedConfig).toContain(
+      '"blume:theme": blumeFileURLToPath(new URL("./src/generated/app.css", import.meta.url))'
+    );
+    expect(ejectedConfig).toContain(
+      '"blume:examples": blumeFileURLToPath(new URL("./src/generated/examples.ts", import.meta.url))'
+    );
     // The include graph the ejected astro.config's includeHmrPlugin reads —
     // without it partial edits would silently serve stale pages post-eject.
     expect(has("src/generated/includes.json")).toBe(true);

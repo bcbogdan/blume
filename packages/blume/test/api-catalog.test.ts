@@ -26,7 +26,7 @@ describe("buildApiCatalog", () => {
     const catalog = JSON.parse(buildApiCatalog(config) ?? "");
     expect(catalog.linkset).toEqual([
       {
-        anchor: "https://docs.example.com/site/api/docs",
+        anchor: "https://docs.example.com/site/api/docs/pages.json",
         "service-desc": [
           {
             href: "https://docs.example.com/site/openapi.json",

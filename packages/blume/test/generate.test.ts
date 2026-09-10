@@ -736,7 +736,11 @@ describe("buildRuntimeData", () => {
       href: "/home",
       light: "/light.png",
     });
-    expect(data.config.mcp).toEqual({ name: "Docs MCP", route: "/mcp" });
+    expect(data.config.mcp).toEqual({
+      discovery: true,
+      name: "Docs MCP",
+      route: "/mcp",
+    });
     expect(data.config.og.enabled).toBe(true);
     expect(data.config.site).toBe("https://example.com");
   });
@@ -1644,7 +1648,7 @@ describe("generateRuntime", () => {
     expect(has("src/pages/api/[...path].ts")).toBe(true);
     expect(
       await readFile(join(out, "src/pages/api/[...path].ts"), "utf-8")
-    ).toContain('{"base":"","site":"https://example.com"}');
+    ).toContain('{"base":"","contentBase":"","site":"https://example.com"}');
     const spec = await readFile(
       join(out, "src/pages/openapi.json.ts"),
       "utf-8"

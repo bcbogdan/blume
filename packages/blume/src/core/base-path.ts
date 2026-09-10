@@ -62,6 +62,14 @@ export const normalizeRoute = (input: string): string => {
 export const isInternalPath = (target: string): boolean =>
   target.startsWith("/") && !target.startsWith("//");
 
+/** Apply an independent routing layer to a known generated route, even when prefixes overlap. */
+export const prependRouteBase = (base: string, route: string): string => {
+  if (!base || !isInternalPath(route)) {
+    return route;
+  }
+  return route === "/" ? base : `${base}${route}`;
+};
+
 /**
  * Whether a rendered link should open in a new tab: an absolute http(s) URL or
  * a protocol-relative one (`//host/path`). Other schemes (`mailto:`, `tel:`)

@@ -144,7 +144,9 @@ export interface UseAskAI {
   reset: () => void;
 }
 
-const DEFAULT_ASK_ENDPOINT = joinBase(import.meta.env.BASE_URL, "api/ask");
+const DEFAULT_ASK_ENDPOINT =
+  import.meta.env.BLUME_ASK_ENDPOINT ??
+  joinBase(import.meta.env.BASE_URL, "api/ask");
 
 export interface UseAskAIOptions {
   /** Existing Ask AI endpoint; defaults to Blume's generated `/api/ask`. */

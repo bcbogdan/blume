@@ -1,4 +1,8 @@
-import { normalizeBasePath, withBasePath } from "../core/base-path.ts";
+import {
+  isInternalPath,
+  normalizeBasePath,
+  prependRouteBase,
+} from "../core/base-path.ts";
 import { repoUrl } from "../core/github.ts";
 import type { BlumeProject } from "../core/project-graph.ts";
 import type { ContentSignalPolicy, ContentSignals } from "../core/schema.ts";
@@ -6,6 +10,7 @@ import { absoluteUrl } from "../core/site-url.ts";
 import { buildRssFeeds } from "../deploy/rss.ts";
 import { hasApiCatalog } from "./api-catalog.ts";
 import { API_PAGES_PATH, API_SEARCH_PATH, OPENAPI_PATH } from "./api/paths.ts";
+import { artifactRoute } from "./artifact-routes.ts";
 
 /** Token map for the machine-readable content-usage echo. */
 const USAGE_TOKENS: [keyof ContentSignalPolicy, string][] = [
@@ -44,7 +49,7 @@ const askApiUrl = (
   if (!endpoint) {
     return abs("/api/ask");
   }
-  return site && endpoint.startsWith("/")
+  return site && isInternalPath(endpoint)
     ? absoluteUrl(site, endpoint)
     : endpoint;
 };
@@ -69,7 +74,7 @@ interface AgentArtifacts extends WellKnownArtifacts {
   api?: ApiArtifact;
   llmsFullTxt?: string;
   llmsTxt?: string;
-  mcp?: { discovery: string; url: string };
+  mcp?: { discovery?: string; url: string };
   askApi?: string;
   sitemap?: string;
   feeds?: string[];
@@ -168,13 +173,17 @@ export const buildAgentReadability = (
   // Every artifact is served under `deployment.base` — with or without a
   // `site`; concatenate rather than `new URL()` so the subpath is preserved.
   const deployBase = normalizeBasePath(config.deployment.base);
-  const abs = (path: string): string => {
-    const based = withBasePath(deployBase, path);
+  const rootAbs = (path: string): string => {
+    const based = prependRouteBase(deployBase, path);
     return site ? absoluteUrl(site, based) : based;
   };
+  const abs = (path: string): string =>
+    rootAbs(artifactRoute(config.basePath, path));
 
   const artifacts: AgentArtifacts = {
-    markdown: markdownArtifact(config, abs),
+    markdown: markdownArtifact(config, (path) =>
+      rootAbs(prependRouteBase(config.basePath, path))
+    ),
   };
   const api = apiArtifact(config, abs);
   if (api) {
@@ -186,12 +195,16 @@ export const buildAgentReadability = (
   }
   if (config.ai.mcp.enabled) {
     artifacts.mcp = {
-      discovery: abs("/.well-known/mcp.json"),
-      url: abs(config.ai.mcp.route),
+      url: rootAbs(config.ai.mcp.route),
     };
+    if (config.ai.mcp.discovery) {
+      artifacts.mcp.discovery = abs("/.well-known/mcp.json");
+    }
   }
   if (config.ai.ask?.enabled) {
-    artifacts.askApi = askApiUrl(config.ai.ask.endpoint, site, abs);
+    artifacts.askApi = askApiUrl(config.ai.ask.endpoint, site, (path) =>
+      rootAbs(prependRouteBase(config.basePath, path))
+    );
   }
   Object.assign(artifacts, wellKnownArtifacts(config, abs));
   if (site && config.seo.sitemap) {

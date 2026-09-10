@@ -643,7 +643,7 @@ describe("notFoundPageTemplate", () => {
       '...(data.config.discovery.sitemap\n    ? [{ href: withBase("/sitemap.xml"), label: nf.sitemap }]\n    : [])'
     );
     expect(out).toContain(
-      '...(data.config.discovery.llmsTxt\n    ? [{ href: withBase("/llms.txt"), label: nf.llms }]\n    : [])'
+      '...(data.config.discovery.llmsTxt\n    ? [{ href: withBase(deployedArtifactRoute(import.meta.env.BASE_URL, data.config.basePath, "/llms.txt")), label: nf.llms }]\n    : [])'
     );
     // Rendered as a labeled nav under its own heading, and skipped entirely
     // when nothing is linkable.
@@ -705,10 +705,10 @@ describe("notFoundMarkdownTemplate", () => {
       '...(data.config.discovery.sitemap\n    ? [{ href: href("/sitemap.xml"), label: nf.sitemap }]\n    : [])'
     );
     expect(out).toContain(
-      '...(data.config.discovery.llmsTxt\n    ? [{ href: href("/llms.txt"), label: nf.llms }]\n    : [])'
+      '...(data.config.discovery.llmsTxt\n    ? [{ href: href(deployedArtifactRoute(import.meta.env.BASE_URL, data.config.basePath, "/llms.txt")), label: nf.llms }]\n    : [])'
     );
     expect(out).toContain(
-      '...(data.config.discovery.api\n    ? [{ href: href("/openapi.json"), label: nf.api }]\n    : [])'
+      '...(data.config.discovery.api\n    ? [{ href: href(deployedArtifactRoute(import.meta.env.BASE_URL, data.config.basePath, "/openapi.json")), label: nf.api }]\n    : [])'
     );
   });
 
@@ -752,10 +752,10 @@ describe("notFoundJsonTemplate", () => {
       '...(data.config.discovery.sitemap\n    ? [{ href: href("/sitemap.xml"), label: nf.sitemap }]\n    : [])'
     );
     expect(out).toContain(
-      '...(data.config.discovery.llmsTxt\n    ? [{ href: href("/llms.txt"), label: nf.llms }]\n    : [])'
+      '...(data.config.discovery.llmsTxt\n    ? [{ href: href(deployedArtifactRoute(import.meta.env.BASE_URL, data.config.basePath, "/llms.txt")), label: nf.llms }]\n    : [])'
     );
     expect(out).toContain(
-      '...(data.config.discovery.api\n    ? [{ href: href("/openapi.json"), label: nf.api }]\n    : [])'
+      '...(data.config.discovery.api\n    ? [{ href: href(deployedArtifactRoute(import.meta.env.BASE_URL, data.config.basePath, "/openapi.json")), label: nf.api }]\n    : [])'
     );
     expect(out).toContain("  links,");
     expect(out).toContain(
@@ -1964,7 +1964,7 @@ describe("env / package / tsconfig templates", () => {
     });
     for (const [id, file] of RUNTIME_MODULE_FILES) {
       expect(out).toContain(
-        `${JSON.stringify(id)}: ${JSON.stringify(`./src/generated/${file}`)}`
+        `${JSON.stringify(id)}: blumeFileURLToPath(new URL(${JSON.stringify(`./src/generated/${file}`)}, import.meta.url))`
       );
     }
     expect(out).not.toContain("runtimeModulesPlugin");

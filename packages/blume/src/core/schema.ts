@@ -790,6 +790,7 @@ const publicJwkSchema = z
   });
 
 const mcpConfigSchema = z.strictObject({
+  discovery: z.boolean().default(true),
   enabled: z.boolean().default(false),
   /** Optional system hint passed to connecting agents. */
   instructions: z.string().optional(),

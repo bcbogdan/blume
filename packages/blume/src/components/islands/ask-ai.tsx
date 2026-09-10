@@ -55,7 +55,9 @@ const DEFAULT_ASK: UIStrings["ask"] = {
 
 // The endpoint honors the deployment `base` so grounding works under a
 // non-root base path (the server matches base-less document routes).
-const DEFAULT_ASK_ENDPOINT = joinBase(import.meta.env.BASE_URL, "api/ask");
+const DEFAULT_ASK_ENDPOINT =
+  import.meta.env.BLUME_ASK_ENDPOINT ??
+  joinBase(import.meta.env.BASE_URL, "api/ask");
 
 // GitHub-flavored markdown with soft line breaks, matching how the docs read.
 // A dedicated instance, not the shared `marked` singleton: `setOptions`/`use`

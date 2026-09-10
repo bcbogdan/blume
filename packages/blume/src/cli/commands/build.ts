@@ -628,8 +628,10 @@ const publishLlmsFiles = async (
 ): Promise<void> => {
   const indexPath = join(distDir, "llms.txt");
   const fullPath = join(distDir, "llms-full.txt");
-  const writeIndex = !existsSync(indexPath);
-  const writeFull = !existsSync(fullPath);
+  const generated = (name: string): boolean =>
+    existsSync(join(project.context.outDir, "src", "pages", `${name}.ts`));
+  const writeIndex = !existsSync(indexPath) || generated("llms.txt");
+  const writeFull = !existsSync(fullPath) || generated("llms-full.txt");
   if (!(writeIndex || writeFull)) {
     return;
   }
@@ -640,6 +642,21 @@ const publishLlmsFiles = async (
   }
   if (writeFull) {
     writes.push(writeFile(fullPath, full, "utf-8"));
+  }
+  if (project.config.basePath) {
+    for (const [name, body] of [
+      ["llms.txt", index],
+      ["llms-full.txt", full],
+    ] as const) {
+      const mounted = join(project.config.basePath, name);
+      // Mounted aliases of a user-owned root file keep that file's contents.
+      if (
+        generated(mounted) &&
+        !existsSync(join(project.context.root, "public", name))
+      ) {
+        writes.push(writeFile(join(distDir, mounted), body, "utf-8"));
+      }
+    }
   }
   await Promise.all(writes);
   logger.success(

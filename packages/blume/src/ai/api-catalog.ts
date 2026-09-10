@@ -1,8 +1,13 @@
-import { normalizeBasePath, withBasePath } from "../core/base-path.ts";
+import {
+  normalizeBasePath,
+  prependRouteBase,
+  withBasePath,
+} from "../core/base-path.ts";
 import type { ResolvedConfig } from "../core/schema.ts";
 import { absoluteUrl } from "../core/site-url.ts";
 import { resolveReferences } from "../openapi/references.ts";
-import { API_BASE, OPENAPI_PATH } from "./api/paths.ts";
+import { API_PAGES_PATH, OPENAPI_PATH } from "./api/paths.ts";
+import { artifactRoute } from "./artifact-routes.ts";
 
 /**
  * RFC 9727 API catalog: a linkset (RFC 9264) at `/.well-known/api-catalog`
@@ -33,7 +38,7 @@ const linksetEntries = (config: ResolvedConfig): LinksetEntry[] => {
   const site = config.deployment.site ?? null;
   const deployBase = normalizeBasePath(config.deployment.base);
   const abs = (path: string): string => {
-    const based = withBasePath(deployBase, path);
+    const based = prependRouteBase(deployBase, path);
     return site ? absoluteUrl(site, based) : based;
   };
 
@@ -59,19 +64,34 @@ const linksetEntries = (config: ResolvedConfig): LinksetEntry[] => {
 
   if (config.ai.api) {
     entries.push({
-      anchor: abs(API_BASE),
-      "service-desc": [{ href: abs(OPENAPI_PATH), type: "application/json" }],
-      "service-doc": [{ href: abs("/"), type: "text/html" }],
+      anchor: abs(artifactRoute(config.basePath, API_PAGES_PATH)),
+      "service-desc": [
+        {
+          href: abs(artifactRoute(config.basePath, OPENAPI_PATH)),
+          type: "application/json",
+        },
+      ],
+      "service-doc": [
+        {
+          href: abs(prependRouteBase(config.basePath, "/")),
+          type: "text/html",
+        },
+      ],
     });
   }
 
   if (config.ai.mcp.enabled) {
     entries.push({
       anchor: abs(config.ai.mcp.route),
-      "service-desc": [
-        { href: abs("/.well-known/mcp.json"), type: "application/json" },
+      "service-desc": config.ai.mcp.discovery
+        ? [{ href: abs("/.well-known/mcp.json"), type: "application/json" }]
+        : undefined,
+      "service-doc": [
+        {
+          href: abs(prependRouteBase(config.basePath, "/")),
+          type: "text/html",
+        },
       ],
-      "service-doc": [{ href: abs("/"), type: "text/html" }],
     });
   }
   return entries;

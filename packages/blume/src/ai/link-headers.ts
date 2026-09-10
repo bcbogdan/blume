@@ -2,6 +2,7 @@ import { normalizeBasePath } from "../core/base-path.ts";
 import type { ResolvedConfig } from "../core/schema.ts";
 import { API_CATALOG_PATH, hasApiCatalog } from "./api-catalog.ts";
 import { OPENAPI_PATH } from "./api/paths.ts";
+import { artifactRoute } from "./artifact-routes.ts";
 
 /**
  * The homepage `Link` response header (RFC 8288) — agent discovery for the
@@ -41,17 +42,17 @@ export const buildHomeLinkHeader = (
   // description of the service — the JSON docs API's OpenAPI document.
   if (config.ai.api) {
     links.push(
-      `<${deployBase}${OPENAPI_PATH}>; rel="service-desc"; type="application/json"`
+      `<${deployBase}${artifactRoute(config.basePath, OPENAPI_PATH)}>; rel="service-desc"; type="application/json"`
     );
   }
   if (config.seo.agentReadability) {
     links.push(
-      `<${deployBase}/agent-readability.json>; rel="describedby"; type="application/json"`
+      `<${deployBase}${artifactRoute(config.basePath, "/agent-readability.json")}>; rel="describedby"; type="application/json"`
     );
   }
   if (config.ai.llmsTxt.enabled) {
     links.push(
-      `<${deployBase}/llms.txt>; rel="describedby"; type="text/plain"`
+      `<${deployBase}${artifactRoute(config.basePath, "/llms.txt")}>; rel="describedby"; type="text/plain"`
     );
   }
   // Same route list as the negotiation surfaces (`markdownRoutePaths`): "/"

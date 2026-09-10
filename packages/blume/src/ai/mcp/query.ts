@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   normalizeRoute as normalizePageRoute,
   stripBasePath,
-  withBasePath,
+  prependRouteBase,
 } from "../../core/base-path.ts";
 import { absoluteUrl } from "../../core/site-url.ts";
 import { trimEnd } from "../../core/trim.ts";
@@ -244,7 +244,7 @@ export const normalizeRoute = (input: string, data: McpData): string => {
 export const urlFor = (route: string, data: McpData): string => {
   // Routes are base-less manifest paths; layer `deployment.base` on top so the
   // URL matches where the page is served (the sitemap/llms.txt convention).
-  const path = withBasePath(data.base, route);
+  const path = prependRouteBase(data.base, route);
   // Concatenate rather than `new URL(path, site)` — a root-absolute path
   // would drop the base path of a subpath deployment (`acme.com/docs`).
   return data.site ? absoluteUrl(data.site, path) : path;

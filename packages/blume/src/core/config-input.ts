@@ -773,6 +773,8 @@ export interface LlmsTxtConfig {
 
 /** Expose the docs as an MCP server for connecting agents. */
 export interface McpConfig {
+  /** Publish and advertise MCP discovery documents. Defaults to `true`. */
+  discovery?: boolean;
   /** Turn the MCP server on. Defaults to `false`. */
   enabled?: boolean;
   /** Optional system hint passed to connecting agents. */

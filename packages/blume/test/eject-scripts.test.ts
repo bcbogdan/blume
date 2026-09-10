@@ -104,9 +104,9 @@ describe("updatePackageScripts", () => {
 describe("droppedArtifactNotices", () => {
   it("lists the default-on artifacts for a zero-config project", () => {
     const notices = droppedArtifactNotices(config());
-    expect(notices).toContain("llms.txt and llms-full.txt");
+    expect(notices).not.toContain("llms.txt and llms-full.txt");
     expect(notices.some((notice) => notice.includes("robots.txt"))).toBe(true);
-    expect(notices).toContain("agent-readability.json");
+    expect(notices).not.toContain("agent-readability.json");
     // No deployment.site, no redirects, and the static Orama provider: no
     // sitemap, redirect-file, Pagefind, or hosted-sync notices.
     expect(notices.some((notice) => notice.includes("sitemap.xml"))).toBe(

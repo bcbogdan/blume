@@ -3,6 +3,8 @@
 interface ImportMetaEnv {
   /** Deployment base path, always with a trailing slash (e.g. `/` or `/docs/`). */
   readonly BASE_URL: string;
+  /** Resolved by Blume's generated/ejected Vite config; absent in custom Astro apps. */
+  readonly BLUME_ASK_ENDPOINT?: string;
   readonly DEV: boolean;
   readonly MODE: string;
   readonly PROD: boolean;

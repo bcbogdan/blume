@@ -1,5 +1,6 @@
-import { withBasePath } from "../../core/base-path.ts";
+import { prependRouteBase } from "../../core/base-path.ts";
 import { absoluteUrl, siteRoot } from "../../core/site-url.ts";
+import { artifactRoute } from "../artifact-routes.ts";
 import {
   API_NAVIGATION_PATH,
   API_PAGE_PATH,
@@ -22,8 +23,11 @@ import { PROBLEM_TYPE } from "./problem.ts";
 
 /** What the document needs to know about the site. */
 export interface ApiSpecInput {
+  /** Content mount for framework artifacts; explicit MCP routes stay independent. */
+  contentBase?: string;
   /** Whether `agent-readability.json` is published. */
   agentReadability: boolean;
+  mcpDiscovery?: boolean;
   /** Normalized `deployment.base` (`""` or `/seg`). */
   base: string;
   description?: string;
@@ -621,8 +625,7 @@ export const buildApiSpec = (input: ApiSpecInput): ApiSpecDocument => {
       input.mcpRoute,
       {
         post: {
-          description:
-            "The Model Context Protocol server (Streamable HTTP, stateless, JSON responses). Tools: `search_docs`, `get_page`, `list_pages`, `get_navigation` — the same operations this API exposes — plus every page as a `text/markdown` resource. Discovery document at `/.well-known/mcp.json`.",
+          description: `The Model Context Protocol server (Streamable HTTP, stateless, JSON responses). Tools: \`search_docs\`, \`get_page\`, \`list_pages\`, \`get_navigation\` — the same operations this API exposes — plus every page as a \`text/markdown\` resource.${input.mcpDiscovery === false ? "" : " Discovery document at `/.well-known/mcp.json`."}`,
           operationId: "mcp",
           requestBody: {
             content: { [JSON_TYPE]: { schema: ref("JsonRpcRequest") } },
@@ -666,7 +669,14 @@ export const buildApiSpec = (input: ApiSpecInput): ApiSpecDocument => {
     components: { schemas },
     info,
     openapi: "3.1.0",
-    paths: Object.fromEntries(pathEntries),
+    paths: Object.fromEntries(
+      pathEntries.map(([path, item]) => [
+        path === input.mcpRoute
+          ? path
+          : artifactRoute(input.contentBase ?? "", path),
+        item,
+      ])
+    ),
     security: [],
     servers: [{ description: input.name, url: serverUrl(input) }],
     tags,
@@ -674,7 +684,13 @@ export const buildApiSpec = (input: ApiSpecInput): ApiSpecDocument => {
   if (input.site) {
     document.externalDocs = {
       description: `${input.name} documentation`,
-      url: absoluteUrl(input.site, withBasePath(input.base, "/")),
+      url: absoluteUrl(
+        input.site,
+        prependRouteBase(
+          input.base,
+          prependRouteBase(input.contentBase ?? "", "/")
+        )
+      ),
     };
   }
   return document;
