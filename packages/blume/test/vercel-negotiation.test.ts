@@ -6,6 +6,7 @@ import {
   buildNegotiationRoutes,
   injectNegotiationRoutes,
 } from "../src/deploy/vercel-negotiation.ts";
+import type { VercelRoute } from "../src/deploy/vercel-negotiation.ts";
 
 // The router's matching semantics aren't contractual — exercise the pattern
 // both as a substring match and wrapped as a full-string match, since it must
@@ -143,7 +144,12 @@ describe("buildNegotiationRoutes", () => {
   });
 });
 
-const baseConfig = {
+interface AdapterFixture {
+  routes: [VercelRoute, VercelRoute, VercelRoute, VercelRoute];
+  version: number;
+}
+
+const baseConfig: AdapterFixture = {
   routes: [
     { handle: "filesystem" },
     {
@@ -156,6 +162,179 @@ const baseConfig = {
   ],
   version: 3,
 };
+
+const injectRedirectFixture = (routes: VercelRoute[]) => {
+  const once = injectNegotiationRoutes(
+    JSON.stringify({ routes, version: 3 }),
+    [],
+    null,
+    undefined,
+    undefined,
+    { json: true, markdown: true }
+  );
+  expect(once).not.toBeNull();
+  expect(
+    injectNegotiationRoutes(once ?? "", [], null, undefined, undefined, {
+      json: true,
+      markdown: true,
+    })
+  ).toBe(once);
+  const result: { routes: VercelRoute[] } = JSON.parse(once ?? "");
+  return result.routes.filter((route) => route.src !== "^/(.+)/$");
+};
+
+describe("conservative redirect deduplication", () => {
+  const direct: VercelRoute = {
+    headers: { Location: "/new" },
+    src: "^/old$",
+    status: 301,
+  };
+  const fallback: VercelRoute = { dest: "_render", src: "^/old$" };
+  const filesystem = { handle: "filesystem" };
+  const [, assetHeaders] = baseConfig.routes;
+  const inject = injectRedirectFixture;
+
+  it("drops an identical literal fallback without changing the redirect or filesystem order", () => {
+    // @astrojs/vercel 11.0.10 normalizes getTransformedRoutes redirects before
+    // filesystem, then Astro 7.3.2 route.patternRegex fallbacks. With
+    // trailingSlash: never, both normalized patterns are ^/old$.
+    const other = {
+      headers: { Location: "/elsewhere" },
+      src: "^/other$",
+      status: 307,
+    };
+    expect(inject([direct, other, filesystem, assetHeaders, fallback])).toEqual(
+      [direct, other, filesystem, assetHeaders]
+    );
+    expect(direct.src).toBe("^/old$");
+    expect(new RegExp(direct.src ?? "", "u").test("/old/")).toBe(false);
+  });
+
+  it("keeps statuses, locations, and ordering for identical slash and root patterns", () => {
+    for (const src of ["^/old/$", "^/old/?$", "^/$"]) {
+      const redirect = { ...direct, src, status: 308 };
+      expect(inject([redirect, filesystem, { ...fallback, src }])).toEqual([
+        redirect,
+        filesystem,
+      ]);
+    }
+    const second = { ...direct, src: "^/second$", status: 302 };
+    expect(
+      inject([
+        direct,
+        second,
+        filesystem,
+        { ...fallback, src: second.src },
+        fallback,
+      ])
+    ).toEqual([direct, second, filesystem]);
+  });
+
+  it("preserves the adapter's optional-slash fallback, including slash-specific conflicts", () => {
+    // Actual normalized adapter output under trailingSlash: ignore differs by
+    // /?. Widening the direct redirect would take /old/ away from this route.
+    const slash = {
+      headers: { Location: "/slash-owner" },
+      src: "^/old/$",
+      status: 302,
+    };
+    const optional = { ...fallback, src: "^/old/?$" };
+    for (const conflict of [
+      slash,
+      { dest: "/static-owner.html", src: "^/old/$" },
+    ]) {
+      const routes = [direct, conflict, filesystem, optional];
+      expect(inject(routes)).toEqual(routes);
+    }
+    const routes = [direct, filesystem, optional];
+    expect(inject(routes)).toEqual(routes);
+    // Even with no competing route, /old/ can belong to the static filesystem.
+    expect(new RegExp(direct.src ?? "", "u").test("/old/")).toBe(false);
+    expect(new RegExp(optional.src, "u").test("/old/")).toBe(true);
+  });
+
+  it("leaves captures and their substitutions untouched", () => {
+    const redirect = {
+      headers: { Location: "/new/$1/$2" },
+      src: "^/old/([^/]+?)/(.*?)$",
+      status: 301,
+    };
+    for (const src of [redirect.src, "^/old/([^/]+?)/(.*?)/?$"]) {
+      const routes = [redirect, filesystem, { ...fallback, src }];
+      expect(inject(routes)).toEqual(routes);
+    }
+    expect(
+      "/old/first/rest/of/path".replace(
+        new RegExp(redirect.src, "u"),
+        redirect.headers.Location
+      )
+    ).toBe("/new/first/rest/of/path");
+  });
+
+  it("leaves duplicate pairs and direct redirects ambiguous", () => {
+    for (const routes of [
+      [direct, direct, filesystem, fallback],
+      [direct, filesystem, fallback, fallback],
+      [direct, direct, filesystem, fallback, fallback],
+      [direct, filesystem, filesystem, fallback],
+      [filesystem, fallback, direct],
+    ]) {
+      expect(inject(routes)).toEqual(routes);
+    }
+  });
+
+  it("does not cross rewrites, phase controls, or extra fields", () => {
+    const extraFields = [
+      { has: [{ key: "x-test", type: "header", value: "yes" }] },
+      { missing: [{ key: "x-test", type: "header" }] },
+      { methods: ["GET"] },
+      { continue: true },
+      { middlewarePath: "_middleware" },
+    ];
+    for (const extra of extraFields) {
+      for (const routes of [
+        [{ ...direct, ...extra }, filesystem, fallback],
+        [direct, filesystem, { ...fallback, ...extra }],
+      ]) {
+        expect(inject(routes)).toEqual(routes);
+      }
+    }
+    const barriers: VercelRoute[] = [
+      { continue: true, dest: "/old", src: "^/alias$" },
+      { handle: "rewrite" },
+      { headers: { "x-test": "yes" }, src: "^/old$" },
+      { ...direct, headers: { Location: "/new", "x-test": "yes" } },
+      { ...direct, status: 304 },
+    ];
+    for (const barrier of barriers) {
+      const routes = [direct, filesystem, barrier, fallback];
+      expect(inject(routes)).toEqual(routes);
+    }
+    const extraFilesystem = [direct, { ...filesystem, extra: true }, fallback];
+    expect(inject(extraFilesystem)).toEqual(extraFilesystem);
+  });
+
+  it("preserves newer API routing and negotiated 404s after deduplication", () => {
+    const api = { dest: "_render", src: "^/api/.*$" };
+    const routes = inject([
+      direct,
+      filesystem,
+      fallback,
+      api,
+      baseConfig.routes[3],
+    ]);
+    expect(routes[0]).toEqual(direct);
+    expect(routes[1]).toEqual(filesystem);
+    expect(routes[2]).toEqual(api);
+    expect(routes.slice(3).map((route) => route.dest)).toEqual([
+      "/404.md",
+      "/404.md",
+      "/404.json",
+      "/404.json",
+      "/404.html",
+    ]);
+  });
+});
 
 describe("injectNegotiationRoutes", () => {
   it("splices Vary routes then rewrites, all before handle:filesystem", () => {

@@ -277,6 +277,67 @@ const isNegotiationRoute = (route: VercelRoute): boolean =>
   (route.status === TRAILING_SLASH_REDIRECT.status &&
     route.src === TRAILING_SLASH_REDIRECT.src);
 
+const isPlainRedirect = (route: VercelRoute): boolean =>
+  isString(route.src) &&
+  [301, 302, 303, 307, 308].includes(route.status ?? 0) &&
+  isString(route.headers?.Location) &&
+  Object.keys(route.headers).length === 1 &&
+  Object.keys(route).length === 3;
+
+const isPlainHeaderRoute = (route: VercelRoute): boolean =>
+  route.continue === true &&
+  isString(route.src) &&
+  route.headers !== undefined &&
+  Object.keys(route).length === 3;
+
+// Only literal paths, optionally ending in /?. Captures and other regex syntax
+// need a language-containment proof, which this optimization deliberately avoids.
+const LITERAL_REDIRECT_SRC = /^\^\/[\w/-]*(?:\/\?)?\$$/u;
+
+/**
+ * Drop only an unreachable adapter-shaped fallback. Never widen a main-phase
+ * redirect: even an added slash can steal a filesystem match or a later route.
+ * Identical literal patterns need no overlap analysis. The prefix must contain
+ * only terminal redirects, headers, and one filesystem marker; a rewrite or
+ * unknown field could change the path before it reaches the fallback.
+ */
+const deduplicateRedirectRoutes = (routes: VercelRoute[]): VercelRoute[] => {
+  const filesystemIndices = routes.flatMap((route, index) =>
+    route.handle === "filesystem" ? [index] : []
+  );
+  const [filesystemIndex] = filesystemIndices;
+  if (filesystemIndex === undefined || filesystemIndices.length !== 1) {
+    return routes;
+  }
+  const direct = routes.slice(0, filesystemIndex);
+  const redirectSources = direct
+    .filter(isPlainRedirect)
+    .map((route) => route.src);
+  let safePrefix = true;
+  return routes.filter((route, index) => {
+    if (
+      safePrefix &&
+      index > filesystemIndex &&
+      route.dest === "_render" &&
+      isString(route.src) &&
+      LITERAL_REDIRECT_SRC.test(route.src) &&
+      Object.keys(route).length === 2 &&
+      redirectSources.filter((src) => src === route.src).length === 1 &&
+      routes.filter(
+        (candidate) =>
+          candidate.src === route.src && candidate.dest === "_render"
+      ).length === 1
+    ) {
+      return false;
+    }
+    safePrefix &&=
+      isPlainRedirect(route) ||
+      isPlainHeaderRoute(route) ||
+      (index === filesystemIndex && Object.keys(route).length === 1);
+    return true;
+  });
+};
+
 /**
  * Splice the negotiation routes into a Build Output `config.json`, plus — when
  * given — a homepage `Link` header route for agent discovery (see
@@ -322,7 +383,9 @@ export const injectNegotiationRoutes = (
     // user's own override of the same path is simply refreshed.
     config.overrides = { ...config.overrides, [path]: { contentType } };
   }
-  const routes = config.routes.filter((route) => !isNegotiationRoute(route));
+  const routes = deduplicateRedirectRoutes(
+    config.routes.filter((route) => !isNegotiationRoute(route))
+  );
   const filesystemIndex = routes.findIndex(
     (route) => route.handle === "filesystem"
   );
